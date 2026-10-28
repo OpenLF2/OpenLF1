@@ -43,6 +43,7 @@
     <binary>openlf1</binary>
   </provides>
   <releases>
+    <release version="1.0.1" date="2026-10-28"/>
     <release version="1.0.0" date="2026-10-28"/>
   </releases>
 </component>

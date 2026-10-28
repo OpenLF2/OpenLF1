@@ -10,7 +10,6 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -v "$repo_root:/work" -w /work emscripten/emsdk:5.0.2 bash -euc '
         emcmake cmake -S . -B build/web-build -G "Unix Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF \
             -DOPENLF1_BUNDLE_DEPENDENCIES=ON
         cmake --build build/web-build --target openlf1 --parallel 4
     '

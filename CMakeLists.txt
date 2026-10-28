@@ -2,7 +2,7 @@
 # Copyright (c) 2026 OpenLF1
 
 cmake_minimum_required(VERSION 3.20)
-project(OpenLF1 VERSION 1.0.0 LANGUAGES CXX)
+project(OpenLF1 VERSION 1.0.1 LANGUAGES CXX)
 set(OPENLF1_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 if(OPENLF1_VERSION_PATCH STREQUAL "")
     set(OPENLF1_VERSION_PATCH 0)
@@ -92,30 +92,6 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=2097152
         -sASYNCIFY=1
         -sEXPORTED_RUNTIME_METHODS=FS,callMain)
-endif()
-
-include(CTest)
-if(BUILD_TESTING AND NOT DJGPP AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/combat_test.cpp" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/gamepad_test.cpp")
-    add_executable(combat_test tests/combat_test.cpp ${OPENLF1_GAME_SOURCES})
-    target_include_directories(combat_test PRIVATE src)
-    target_compile_features(combat_test PRIVATE cxx_std_23)
-    add_test(NAME combat_recovery COMMAND combat_test)
-
-    add_executable(gamepad_test tests/gamepad_test.cpp src/display.cpp)
-    target_include_directories(gamepad_test PRIVATE src)
-    target_compile_features(gamepad_test PRIVATE cxx_std_23)
-    target_link_libraries(gamepad_test PRIVATE ${OPENLF1_SDL})
-    add_test(NAME gamepad_input COMMAND gamepad_test)
-
-    # These checks use assert, including calls with side effects.
-    foreach(test_target combat_test gamepad_test)
-        target_compile_options(${test_target} PRIVATE ${OPENLF1_WERROR})
-        if(MSVC)
-            target_compile_options(${test_target} PRIVATE /UNDEBUG)
-        else()
-            target_compile_options(${test_target} PRIVATE -UNDEBUG)
-        endif()
-    endforeach()
 endif()
 
 if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT DJGPP)

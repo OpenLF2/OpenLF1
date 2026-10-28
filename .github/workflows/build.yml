@@ -119,7 +119,7 @@ jobs:
             -v "$PWD:/work" -w /work debian:bookworm bash -euc '
               apt-get update
               apt-get install -y --no-install-recommends cmake g++ dpkg-dev file ca-certificates $BUILD_DEPS
-              cmake -S . -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON -DBUILD_TESTING=OFF
+              cmake -S . -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON
               cmake --build /tmp/build --parallel 2
               cpack --config /tmp/build/CPackConfig.cmake -G DEB
               mv /tmp/build/*.deb /work/openlf1-${{ matrix.arch }}.deb
