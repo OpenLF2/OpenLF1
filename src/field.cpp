@@ -7,7 +7,7 @@
 #include <numeric>
 
 namespace {
-enum class HitKind { strike, extra, body, weapon, projectile, blast, item_fall };
+enum class HitKind { strike, extra, body, weapon, projectile, blast, item_fall, fighter_marker, item_marker };
 struct HitEntry { ImpactRegion zone; HitKind kind; int index; };
 const std::array<int, GameLimits::battle_sounds + 1> battle_sounds = [] {
     std::array<int, GameLimits::battle_sounds + 1> samples{};
@@ -72,9 +72,6 @@ void Field::press(Action input) {
                     if (input == Action::accept && Grapple::strike(fighters, int(i))) continue;
                     if (input == Action::jump && Grapple::throw_clinched(fighters, int(i))) { display.sound(battle_sounds[BattleSound::attack]); continue; }
                     if ((input == Action::accept || input == Action::jump) && Grapple::throw_held(fighters, int(i))) { display.sound(battle_sounds[BattleSound::attack]); continue; }
-                    const bool holding_melee = f.carried >= 0 && f.carried < int(ground_items.size()) && item_types[ground_items[f.carried].type].category == ItemCategory::melee;
-                    const bool used_special = input == Action::accept && f.try_special(appearance[f.archetype - 1].specials, holding_melee);
-                    if (used_special) continue;
                     if (f.carried >= 0 && f.carried < int(ground_items.size()) && f.state / 10 == FighterStateGroup::holding && f.action != FighterAction::landing) {
                         auto& item = ground_items[f.carried];
                         const int category = item_types[item.type].category;
@@ -110,10 +107,6 @@ bool Field::step() {
                 const auto free_item = std::find_if(ground_items.begin(), ground_items.end(), [](const auto& item) { return !item.active; });
                 const int index = free_item == ground_items.end() ? int(ground_items.size()) : int(free_item - ground_items.begin());
                 if (free_item == ground_items.end()) ground_items.emplace_back();
-                if (fighter.carried >= 0 && fighter.carried < int(ground_items.size())) {
-                    auto& prior = ground_items[fighter.carried];
-                    prior.owner = ItemOwnership::unowned; prior.last_owner = ItemOwnership::detached; prior.settled = false; prior.frame = 3; prior.vz = -7; prior.vx = draw(7) - 3;
-                }
                 auto& created = ground_items[index];
                 created = GroundItem{};
                 created.slot = slot;
@@ -177,18 +170,26 @@ bool Field::step() {
                     if (hits.size() >= Field::hit_slots) return;
                     int belong = index;
                     if (kind == HitKind::projectile) belong = projectiles[index].slot;
-                    else if (kind == HitKind::item_fall) belong = ground_items[index].slot;
+                    else if (kind == HitKind::item_fall || kind == HitKind::item_marker) belong = ground_items[index].slot;
                     else if (kind == HitKind::blast) belong = blasts[index].owner;
                     hit_belong_[hits.size()] = belong;
                     if (zone.damage == 0) return;
                     hits.push_back({zone, kind, index});
                 };
                 std::vector<Projectile> pending_effects;
+                const auto claim_slot = [&](int first) {
+                    for (int slot = first; slot < 30; ++slot) {
+                        const bool pending = std::any_of(pending_effects.begin(), pending_effects.end(), [&](const auto& effect) { return effect.slot == slot; });
+                        if (!slot_used(slot) && !pending) return slot;
+                    }
+                    return 30;
+                };
                 std::vector<int> deferred_drops;
+                std::vector<int> wall_dropped;
                 const auto drop_projectile = [&](const Projectile& p, int vx, int vz) {
                     GroundItem dropped; dropped.slot = p.slot; dropped.type = p.type; dropped.x = p.x; dropped.y = p.y; dropped.z = p.z;
                     dropped.facing = p.facing; dropped.frame = 3; dropped.last_owner = p.owner; dropped.durability = p.durability;
-                    dropped.vx = vx; dropped.vz = vz;
+                    dropped.vx = vx; dropped.vy = p.vy; dropped.vz = vz;
                     const auto slot = std::find_if(ground_items.begin(), ground_items.end(), [](const auto& item) { return !item.active; });
                     int index;
                     if (slot == ground_items.end()) { ground_items.push_back(dropped); index = int(ground_items.size() - 1); }
@@ -202,7 +203,7 @@ bool Field::step() {
                         const int type = *f.launched_projectile;
                         if (type >= 0 && type < int(item_types.size())) {
                             std::array<int, 3> directions{};
-                            const bool burst = f.state / SpecialMoveId::state_stride == SpecialState::ball_kat && (f.archetype == FighterType::cloning_fighter || f.archetype == FighterType::regenerating_fighter);
+                            const bool burst = f.burst_launch;
                             for (int n = 0; n < f.projectile_count; ++n) {
                                 Projectile p; p.slot = free_slot(8); p.owner = int(i); p.type = type; p.x = f.x + f.facing * (burst ? 4 : 7);
                                 p.y = f.y + 1; p.z = -8; p.facing = f.facing;
@@ -216,7 +217,7 @@ bool Field::step() {
                             }
                             emit(burst || type == ItemType::sword_projectile || type == ItemType::arrow ? BattleSound::attack : BattleSound::projectile, f.x);
                         }
-                        f.launched_projectile.reset(); f.projectile_count = 0;
+                        f.launched_projectile.reset(); f.projectile_count = 0; f.burst_launch = false;
                     }
                 };
                 const auto process_fighter = [&](std::size_t i) {
@@ -225,11 +226,20 @@ bool Field::step() {
                     if (!f.active || f.death_pose > 0) return;
                     if (f.state / 10 == FighterStateGroup::angel) {
                         f.advance((tick & 1) == 0, power_phase, round.ongoing(), difficulty);
-                        f.move(camera, boundaries[stage + 1].top, boundaries[stage + 1].bottom, stage == 3, round.winner());
+                    f.move(camera, boundaries[stage + 1].top, boundaries[stage + 1].bottom, stage == 3, round.winner());
                         return;
                     }
                     if (f.state >= FighterState::item_idle_base && f.state < FighterState::item_throw_base && f.carried < 0 && !f.item_pending) { f.state = FighterState::idle; f.action = FighterAction::idle; }
+                    if (round.ongoing()) {
+                        const bool holding_melee = f.carried >= 0 && f.carried < int(ground_items.size()) && item_types[ground_items[f.carried].type].category == ItemCategory::melee;
+                        f.try_sword(holding_melee);
+                    }
                     f.advance((tick & 1) == 0, power_phase, round.ongoing(), difficulty);
+                    if (round.ongoing() && (f.state / 10 <= FighterStateGroup::kicking || f.state / 10 == FighterStateGroup::running || f.state / 20 == FighterStateGroup::clinching ||
+                                            f.state / 10 == FighterStateGroup::lifting || f.state / 50 == FighterStateGroup::item)) {
+                        const bool holding_melee = f.carried >= 0 && f.carried < int(ground_items.size()) && item_types[ground_items[f.carried].type].category == ItemCategory::melee;
+                        f.try_special(appearance[f.archetype - 1].specials, holding_melee);
+                    }
                     const bool forward_roll = (f.action == FighterAction::forward_roll || f.action == FighterAction::backward_roll) && f.velocity_x * f.facing > 3;
                     f.priority = f.action == FighterAction::roll || forward_roll ? AttackPriority::evasive : AttackPriority::none;
                     const int old_state = f.state;
@@ -288,11 +298,14 @@ bool Field::step() {
                             if (f.state / 10 == FighterStateGroup::throwing_item) ++f.state;
                         }
                     }
+                    if (old_state / 10 == FighterStateGroup::lifting) Grapple::carry(fighters, int(i));
+                    if (old_state / 20 == FighterStateGroup::clinching) Grapple::hold(fighters, int(i));
                     launch_projectiles();
                     const bool landing = f.state >= FighterState::falling && f.state < FighterState::downed_last && (f.action == FighterAction::landing || f.z + f.velocity_z > 0);
                     const int landing_variant = landing ? draw(2) : 0;
                     const int revival_velocity = f.state == FighterState::downed_last && f.health > 0 && f.health == f.max_health && f.archetype == FighterType::cloning_fighter ? draw(21) - 10 : 0;
                     if (f.state == FighterState::run_start || f.state == FighterState::run_step_sound) emit(BattleSound::footstep, f.x);
+                    f.dispatch_state = old_state;
                     f.move(camera, boundaries[stage + 1].top, boundaries[stage + 1].bottom, stage == 3, round.winner(), landing_variant, revival_velocity);
                     if (landing) emit(BattleSound::landing, f.x);
                     if (old_state == FighterState::thrown && f.state == FighterState::thrown_bounce) emit(BattleSound::bounce, f.x);
@@ -302,6 +315,10 @@ bool Field::step() {
                                     if (strike) add_hit(*strike, HitKind::strike, int(i));
                     if (extra) add_hit(*extra, HitKind::extra, int(i));
                     if (body) add_hit(*body, HitKind::body, int(i));
+                    if (f.state > FighterState::downed_first && f.state < FighterState::downed_end && old_state >= FighterState::downed_first && f.health > 0)
+                        add_hit(ImpactRegion{f.x, f.y, f.z - 12, 8, 12, f.facing, f.facing * 5, -7, -2, 25}, HitKind::fighter_marker, int(i));
+                    if (f.state == FighterState::staggered && f.balance < CombatTuning::balance_recovery)
+                        add_hit(ImpactRegion{f.x, f.y, f.z - 12, 12, 12, f.facing, f.facing * 5, -7, -1, 25}, HitKind::fighter_marker, int(i));
                 };
                 for (int n = 0; n < Slots::objects_end; ++n) {
                     if (n < int(fighters.size())) { process_fighter(std::size_t(n)); continue; }
@@ -312,14 +329,32 @@ bool Field::step() {
                     for (std::size_t k = 0; k < hit_effects.size(); ++k) if (hit_effects[k].slot == n) effect_index = int(k);
                     if (projectile_index >= 0) {
                         auto& p = projectiles[projectile_index];
-                        if (p.exploding) { if (++p.frame >= 4 || p.type == ItemType::short_effect) p.active = false; }
-                        else add_hit(p.advance(item_types[p.type], fighters, camera, boundaries[stage + 1].top, boundaries[stage + 1].bottom, draw), HitKind::projectile, projectile_index);
+                        if (p.exploding) {
+                            if (++p.frame >= 4 || p.type == ItemType::short_effect) p.active = false;
+                            p.x += p.vx; p.y = std::clamp(p.y + p.vy, boundaries[stage + 1].top - 3, boundaries[stage + 1].bottom + 2);
+                            if (p.x <= camera - 190 || p.x >= camera + 510) p.active = false;
+                        }
+                        else {
+                            add_hit(p.advance(item_types[p.type], fighters, camera, boundaries[stage + 1].top, boundaries[stage + 1].bottom, draw), HitKind::projectile, projectile_index);
+                            if (projectiles[projectile_index].wall_bounce) {
+                                auto& bounced = projectiles[projectile_index];
+                                wall_dropped.push_back(projectile_index);
+                                drop_projectile(bounced, bounced.x <= camera - 190 ? 10 : -10, -17);
+                            }
+                        }
                     } else if (item_index >= 0) {
                         auto& item = ground_items[item_index];
                         if (item.owner >= 0) {
                             auto& holder = fighters[item.owner];
-                            const bool carrying = holder.carried == item_index;
+                            const bool carrying = holder.carried == item_index || (holder.carried == ItemSlot::knocked && item.slot == ItemSlot::knocked_slot);
                             const auto swing = item.follow(holder, item_types[item.type], carrying && round.winner() <= 0, draw);
+                            if (item.active) {
+                                item.x += item.vx; item.y = std::clamp(item.y + item.vy, boundaries[stage + 1].top - 3, boundaries[stage + 1].bottom + 2);
+                                if (item.x <= camera - 190 || item.x >= camera + 510) {
+                                    if (item.durability > 8) { item.owner = ItemOwnership::unowned; item.settled = false; item.animation = 1; item.frame = 3; item.vz = -17; item.vx = item.x <= camera - 190 ? 10 : -10; }
+                                    else { item.active = false; item.vy = 0; }
+                                }
+                            }
                             if (carrying && item.active) launch_for(std::size_t(item.owner));
                             if (swing) add_hit(*swing, HitKind::weapon, item.owner);
                         } else {
@@ -328,6 +363,7 @@ bool Field::step() {
                                 Blast blast; blast.slot = item.slot; blast.owner = item.last_owner; blast.x = item.x; blast.y = item.y; blast.z = item.z;
                                 blasts.push_back(blast); item.detonate = false; item.active = false;
                             }
+                            if (item.rest_marker) add_hit(ImpactRegion{item.x, item.y, item.z, 5, 7, item.facing, item.vx, -7, -3, 25}, HitKind::item_marker, item_index);
                             if (item.falling_impact && item.last_owner != ItemOwnership::detached) add_hit(*item.falling_impact, HitKind::item_fall, item_index);
                         }
                     } else if (blast_index >= 0) {
@@ -338,7 +374,8 @@ bool Field::step() {
                         auto& effect = hit_effects[effect_index];
                         ++effect.age;
                         effect.frame = effect.age == 2 ? 2 : 1;
-                        if (effect.age >= 3) effect.slot = -1;
+                        effect.y = std::clamp(effect.y, boundaries[stage + 1].top - 3, boundaries[stage + 1].bottom + 2);
+                        if (effect.age >= 3 || effect.x <= camera - 190 || effect.x >= camera + 510) effect.slot = -1;
                     } else if (n >= Slots::first_spawn && draw(300) == 0 && spawn_items) {
                         GroundItem created = GroundItem::create(draw);
                         created.slot = n;
@@ -347,17 +384,31 @@ bool Field::step() {
                     }
                 }
                 std::erase_if(hit_effects, [](const auto& effect) { return effect.slot < 0; });
-                for (const auto& item : ground_items) if (item.slot >= 0 && !item.active) slot_memory_[item.slot] = {item.type, item.y};
-                for (const auto& p : projectiles) if (p.slot >= 0 && !p.active) slot_memory_[p.slot] = {p.type, p.y};
-                for (const auto& item : ground_items) if (item.slot >= 0 && item.active) slot_memory_[item.slot] = {item.type, item.y};
-                for (const auto& p : projectiles) if (p.slot >= 0 && p.active) slot_memory_[p.slot] = {p.type, p.y};
-                for (const auto& blast : blasts) if (blast.slot >= 0 && blast.active) slot_memory_[blast.slot] = {ItemType::bomb, blast.y};
-                for (const auto& effect : hit_effects) if (effect.slot >= 0) slot_memory_[effect.slot] = {ItemType::hit_effect, effect.y};
+                for (const auto& item : ground_items) if (item.slot >= 0 && !item.active) slot_memory_[item.slot] = {item.type, item.y, item.owner >= 0 ? item.owner : item.last_owner >= 0 ? item.last_owner : 8};
+                for (const auto& p : projectiles) if (p.slot >= 0 && !p.active) slot_memory_[p.slot] = {p.type, p.y, p.owner};
+                for (const auto& item : ground_items) if (item.slot >= 0 && item.active) slot_memory_[item.slot] = {item.type, item.y, item.owner >= 0 ? item.owner : item.last_owner >= 0 ? item.last_owner : 8};
+                for (const auto& p : projectiles) if (p.slot >= 0 && p.active) slot_memory_[p.slot] = {p.type, p.y, p.owner};
+                for (const auto& blast : blasts) if (blast.slot >= 0 && blast.active) slot_memory_[blast.slot] = {ItemType::bomb, blast.y, blast.owner};
+                for (const auto& effect : hit_effects) if (effect.slot >= 0) slot_memory_[effect.slot] = {ItemType::hit_effect, effect.y, slot_memory_[effect.slot].owner};
                 const auto owner_y = [&](const HitEntry& entry) {
                     if (entry.kind == HitKind::projectile) return projectiles[entry.index].y;
-                    if (entry.kind == HitKind::item_fall) return ground_items[entry.index].y;
+                    if (entry.kind == HitKind::item_fall || entry.kind == HitKind::item_marker) return ground_items[entry.index].y;
                     if (entry.kind == HitKind::blast) return fighters[blasts[entry.index].owner].y;
                     return fighters[entry.index].y;
+                };
+                const auto fighter_of = [&](const HitEntry& entry) {
+                    if (entry.kind == HitKind::blast) return blasts[entry.index].owner >= 0 && blasts[entry.index].owner < int(fighters.size()) ? blasts[entry.index].owner : -1;
+                    if (entry.kind == HitKind::projectile || entry.kind == HitKind::item_fall || entry.kind == HitKind::item_marker) return -1;
+                    return entry.index;
+                };
+                // An object that bounces belongs to the fighter that knocked it, or to nobody when another object did.
+                constexpr int nobody = -2;
+                std::vector<int> knocked_by(projectiles.size(), -1);
+                std::vector<bool> knocked_loose(projectiles.size(), false);
+                std::vector<int> knocked_item(projectiles.size(), -1);
+                const auto group_of = [&](std::size_t index) {
+                    if (knocked_by[index] == nobody) return -1;
+                    return fighters[knocked_by[index] >= 0 ? knocked_by[index] : projectiles[index].owner].team;
                 };
                 for (std::size_t ex_slot = 0; ex_slot < hits.size(); ++ex_slot) {
                     const auto ex = hits[ex_slot];
@@ -366,24 +417,28 @@ bool Field::step() {
                     const bool ex_is_item = ex.kind == HitKind::item_fall;
                     const int ty = owner_y(ex);
                     bool handled = false;
+                    int bounced_index = -1;
                     for (std::size_t slot = 0; slot < Field::hit_slots; ++slot) {
                         const int tmp2 = hit_belong_[slot];
-                        const bool arrows_only = ex_is_projectile && projectiles[ex.index].type == ItemType::arrow && thing_in_slot(tmp2) && draw(3) != 2;
+                        const bool pending_thing = std::any_of(pending_effects.begin(), pending_effects.end(), [&](const auto& effect) { return effect.slot == tmp2; });
+                        const bool arrows_only = ex_is_projectile && projectiles[ex.index].type == ItemType::arrow && (thing_in_slot(tmp2) || pending_thing) && draw(3) != 2;
+                        if (arrows_only && slot_memory_[tmp2].type != ItemType::arrow) continue;
                         const bool listed = slot < hits.size();
                         const int other_y = listed ? owner_y(hits[slot]) : (tmp2 >= 8 ? slot_memory_[tmp2].y : fighters[tmp2].y);
                         if (std::abs(other_y - ty) >= 8) continue;
                         if (slot == ex_slot) continue;
                         if (tmp2 >= 8 && slot_memory_[tmp2].type == ItemType::plus && draw(3) == 0) continue;
                         if (!ex_is_projectile && !ex_is_item) continue;
-                        if (!listed || handled) continue;
+                        if (!listed) continue;
                         const auto& other = hits[slot];
                         if (other.zone.damage <= 0) continue;
                         if (ex_is_item) {
                             auto& item = ground_items[ex.index];
                             if (!(item.active && item.owner < 0 && (item.type == ItemType::stone || item.type == ItemType::box) && item.z + item.vz < 0 && item_types[item.type].damage > 0)) continue;
-                            if (other.kind != HitKind::strike && other.kind != HitKind::extra && other.kind != HitKind::body && other.kind != HitKind::weapon) continue;
+                            const int hitter = fighter_of(other);
+                            if (hitter < 0) continue;
                             const auto& definition = item_types[item.type];
-                            const auto reaction = item.collide(other.zone, fighters[other.index], definition, fighters, other.index, draw);
+                            const auto reaction = item.collide(other.zone, fighters[hitter], definition, fighters, hitter, draw);
                             if (reaction == ItemCollision::bounced) emit(item.type == ItemType::sword || item.type == ItemType::seven || item.type == ItemType::plus || item.type == ItemType::claw ? BattleSound::weapon_impact : BattleSound::landing, item.x);
                             if (reaction == ItemCollision::destroyed) {
                                 const int replacement = definition.effect == ImpactCode::freeze_kind ? ItemType::freeze_effect : definition.images[2];
@@ -397,29 +452,78 @@ bool Field::step() {
                             }
                         } else {
                             auto& p = projectiles[ex.index];
-                            if (!(p.active && !p.exploding)) continue;
+                            if (bounced_index < 0 && !(p.active && !p.exploding)) continue;
                             const int registered_kind = ex.zone.damage / ImpactCode::scale;
                             const auto convert = [&](ProjectileCollision outcome, int effect_owner) {
                                 const int replacement = registered_kind == ImpactCode::freeze_kind ? ItemType::freeze_effect : item_types[p.type].images[2];
                                 if (replacement >= 0 && replacement < int(item_types.size())) {
                                     if (outcome == ProjectileCollision::impact) { p.type = replacement; p.frame = 1; p.exploding = true; p.vx = p.vy = 0; }
                                     else {
-                                        const int free = free_slot(8);
-                                        Projectile effect; effect.slot = free; effect.owner = effect_owner; effect.type = replacement; effect.x = p.x; effect.y = p.y; effect.z = p.z; effect.exploding = true;
-                                        if (free < 30) pending_effects.push_back(effect);
+                                        const int free = claim_slot(8);
+                                        Projectile effect; effect.slot = free; effect.owner = free < 30 && slot_memory_[free].owner >= 0 && slot_memory_[free].owner < int(fighters.size()) ? slot_memory_[free].owner : effect_owner; effect.type = replacement; effect.x = p.x; effect.y = p.y; effect.z = p.z; effect.exploding = true;
+                                        if (free < 30) { pending_effects.push_back(effect); slot_memory_[free] = {effect.type, effect.y, effect.owner}; }
                                     }
                                     emit(replacement == ItemType::short_effect ? BattleSound::heavy_impact : BattleSound::explosion, p.x);
                                 }
                                 handled = true;
                             };
-                            if (other.kind == HitKind::strike || other.kind == HitKind::extra || other.kind == HitKind::body || other.kind == HitKind::weapon) {
+                            const auto bounce = [&](int hitter_owner, int hitter_x, int hitter_z, bool hitter_is_fighter, int hitter_slot) {
+                                if (std::abs(p.x - hitter_x) >= other.zone.width + 12 || std::abs(p.z - hitter_z) >= other.zone.height + 7) return;
+                                const auto& def = item_types[p.type];
+                                const bool throwable = def.category == ItemCategory::throwable;
+                                if (hitter_is_fighter) {
+                                    auto& hitter = fighters[hitter_owner];
+                                    if (group_of(ex.index) == hitter.team && !throwable) return;
+                                    if (hitter.priority <= AttackPriority::none && hitter.action != FighterAction::punch_hit && hitter.action != FighterAction::punch_hit_alt &&
+                                        hitter.action != FighterAction::kick_hit && hitter.action != FighterAction::kick_hit_alt) return;
+                                } else {
+                                    if (group_of(ex.index) == group_of(std::size_t(hitter_slot))) return;
+                                }
+                                const int sound = p.type == ItemType::sword || p.type == ItemType::seven || p.type == ItemType::plus || p.type == ItemType::claw || p.type == ItemType::knife
+                                    ? BattleSound::weapon_impact : BattleSound::landing;
+                                emit(sound, p.x);
+                                const int vx = throwable ? other.zone.push_x : draw(7) - 3;
+                                const int vz = throwable ? -5 : -7;
+                                if (bounced_index < 0) {
+                                    bounced_index = drop_projectile(p, vx, vz);
+                                    knocked_loose[ex.index] = true;
+                                    knocked_item[ex.index] = bounced_index;
+                                    p.active = false; p.wall_bounce = false;
+                                } else {
+                                    ground_items[bounced_index].vx = vx; ground_items[bounced_index].vz = vz;
+                                }
+                                ground_items[bounced_index].last_owner = hitter_is_fighter ? hitter_owner : ItemOwnership::unowned;
+                                knocked_by[ex.index] = hitter_is_fighter ? hitter_owner : nobody;
+                                if (hitter_is_fighter) fighters[hitter_owner].energy = std::min(fighters[hitter_owner].max_energy, fighters[hitter_owner].energy + 7);
+                            };
+                            if (registered_kind < ImpactCode::fire_kind) {
+                                if (other.kind == HitKind::projectile) {
+                                    const auto& rival = projectiles[other.index];
+                                    if (rival.active || knocked_loose[other.index]) bounce(rival.owner, rival.x, rival.z, false, other.index);
+                                } else if (fighter_of(other) >= 0) {
+                                    bounce(fighter_of(other), fighters[fighter_of(other)].x, fighters[fighter_of(other)].z, true, 0);
+                                }
+                                continue;
+                            }
+                            if (p.exploding) continue;
+                            if (fighter_of(other) >= 0) {
                                 if (arrows_only) continue;
-                                const auto outcome = p.intercept(other.zone, fighters[other.index], other.index, fighters, item_types[p.type], true);
-                                if (outcome != ProjectileCollision::none) convert(outcome, other.index);
+                                const auto outcome = p.intercept(other.zone, fighters[fighter_of(other)], fighter_of(other), fighters, item_types[p.type], true);
+                                if (outcome != ProjectileCollision::none) convert(outcome, fighter_of(other));
                             } else if (other.kind == HitKind::projectile) {
-                                const auto& rival = projectiles[other.index];
-                                if (item_types[rival.type].damage + item_types[rival.type].effect * ImpactCode::scale <= 0) continue;
+                                const Projectile* occupant = &projectiles[other.index];
+                                if (!occupant->active && !knocked_loose[other.index])
+                                    for (const auto& effect : pending_effects) if (effect.slot == tmp2) occupant = &effect;
+                                const auto& rival = *occupant;
                                 if (arrows_only && rival.type != ItemType::arrow) continue;
+                                if (knocked_loose[other.index] && (p.type == ItemType::reflected_projectile || p.type == ItemType::summoned_sword) &&
+                                    rival.type != ItemType::reflected_projectile && rival.type != ItemType::summoned_sword) continue;
+                                if (knocked_loose[other.index] && rival.type != ItemType::reflected_projectile && rival.type != ItemType::summoned_sword) {
+                                    const int kind = item_types[p.type].damage / ImpactCode::scale + item_types[p.type].effect;
+                                    const bool burns = kind == ImpactCode::fire_kind || kind == ImpactCode::explosion_kind || kind == ImpactCode::piercing_kind || kind == ImpactCode::freeze_kind;
+                                    if (burns && std::abs(p.x - rival.x) < other.zone.width + 12 && std::abs(p.z - rival.z) < other.zone.height + 7) convert(ProjectileCollision::impact, p.owner);
+                                    continue;
+                                }
                                 const auto outcome = p.clash(rival, fighters, item_types[p.type], !arrows_only, true);
                                 if (outcome != ProjectileCollision::none) convert(outcome, p.owner);
                             }
@@ -428,9 +532,20 @@ bool Field::step() {
                 }
                 struct ProjectileState { bool consumed = false; int dropped = -1; };
                 std::vector<ProjectileState> projectile_state(hits.size());
-                if (round.ongoing()) for (std::size_t j = 0; j < fighters.size(); ++j)
-                    for (std::size_t h = 0; h < hits.size(); ++h) {
+                for (std::size_t j = 0; j < fighters.size(); ++j) {
+                    const bool detecting = round.ongoing() && fighters[j].active && fighters[j].state / 10 != 5 && (fighters[j].state / 10 != 4 || fighters[j].state == FighterState::falling);
+                    const bool left = controllers[j] >= 0 ? display.held(controllers[j], Action::left) : display.held(1, Action::right);
+                    if (detecting) for (std::size_t h = 0; h < hits.size(); ++h) {
                         const auto& entry = hits[h];
+                        if (entry.kind == HitKind::fighter_marker) {
+                            if (entry.zone.damage == -1) Grapple::clinch(fighters, int(j), entry.index, left);
+                            else Grapple::lift(fighters, int(j), entry.index);
+                            continue;
+                        }
+                        if (entry.kind == HitKind::item_marker) {
+                            if (ground_items[entry.index].claim(fighters[j], int(j), entry.index, ground_items, draw)) emit(BattleSound::light_impact, fighters[j].x);
+                            continue;
+                        }
                         if (entry.kind == HitKind::strike || entry.kind == HitKind::extra || entry.kind == HitKind::body || entry.kind == HitKind::weapon) {
                             const std::size_t i = std::size_t(entry.index);
                             if (entry.zone.damage == ImpactCode::grapple) { Grapple::rush(fighters, int(i), int(j), entry.zone); continue; }
@@ -448,10 +563,29 @@ bool Field::step() {
                             auto& target = fighters[j];
                             const int original_z = target.z;
                             std::array<int, 2> hit_offsets{};
-                            if (target.receive(entry.zone, source, draw, 0, ImpactOrigin::explosion, 16, &hit_offsets)) {
+                            if (target.receive(entry.zone, source, draw, 2, owned ? ImpactOrigin::blast : ImpactOrigin::explosion, 8, &hit_offsets)) {
                                 show_hit(target, entry.zone, 1, original_z, hit_offsets);
                                 emit(BattleSound::heavy_impact, target.x);
                             }
+                        } else if (entry.kind == HitKind::projectile && knocked_item[entry.index] >= 0) {
+                            auto& p = projectiles[entry.index];
+                            auto& dropped = ground_items[knocked_item[entry.index]];
+                            const int owner = knocked_by[entry.index];
+                            Combatant neutral;
+                            auto& source = owner >= 0 ? fighters[owner] : neutral;
+                            const auto origin = owner < 0 ? ImpactOrigin::unowned_item : p.type == ItemType::claw ? ImpactOrigin::friendly_item : ImpactOrigin::item;
+                            auto& target = fighters[j];
+                            if (target.state / 10 == FighterStateGroup::injured && item_types[p.type].motion == ItemMotion::ignore_downed) continue;
+                            const int original_z = target.z;
+                            std::array<int, 2> hit_offsets{};
+                            const auto& hit = entry.zone;
+                            const auto react = [&] {
+                                dropped.react_to_fighter_hit(item_types[dropped.type], hit.damage, source.action, draw);
+                                if (hit.effect % ImpactCode::scale == ImpactCode::recoil) dropped.vx = -hit.push_x;
+                            };
+                            if (!target.receive(hit, source, draw, 2, origin, 8, &hit_offsets, react)) continue;
+                            show_hit(target, hit, p.facing, original_z, hit_offsets);
+                            emit(hit.damage / ImpactCode::scale == ImpactCode::freeze_kind ? BattleSound::freeze : hit.effect % ImpactCode::scale == ImpactCode::knockdown ? BattleSound::heavy_impact : BattleSound::light_impact, target.x);
                         } else if (entry.kind == HitKind::projectile) {
                             auto& p = projectiles[entry.index];
                             auto& state = projectile_state[h];
@@ -459,7 +593,7 @@ bool Field::step() {
                             const int registered_kind = hit.damage / ImpactCode::scale;
                             const int impact_type = p.type;
                             const int impact_owner = p.owner;
-                            const bool vanished = !p.active && !p.wall_bounce;
+                            const bool vanished = !p.active && !p.wall_bounce && state.dropped < 0;
                             if (h == 0 || !state.consumed) state.consumed = state.consumed || p.exploding || vanished;
                             auto& target = fighters[j];
                             const int original_z = target.z;
@@ -471,7 +605,7 @@ bool Field::step() {
                                         auto& dropped = ground_items[state.dropped];
                                         dropped.react_to_fighter_hit(item_types[impact_type], hit.damage, fighters[impact_owner].action, draw);
                                         if (hit.effect % ImpactCode::scale == ImpactCode::recoil) dropped.vx = -hit.push_x;
-                                    }
+                                    } else if (p.active && hit.effect % ImpactCode::scale == ImpactCode::recoil) p.vx = -hit.push_x;
                                     return;
                                 }
                                 if (registered_kind < ImpactCode::fire_kind && item_types[p.type].effect != ImpactCode::piercing_kind &&
@@ -526,30 +660,32 @@ bool Field::step() {
                                 show_hit(target, *item.falling_impact, item.facing, original_z, hit_offsets);
                         }
                     }
+                    if (fighters[j].active && fighters[j].state / 20 == 8) Grapple::clinched(fighters, int(j));
+                    if (fighters[j].active && fighters[j].state / 20 == FighterStateGroup::lifted) Grapple::lifted(fighters, int(j), draw);
+                }
                 for (std::size_t h = 0; h < hits.size(); ++h) {
                     if (hits[h].kind != HitKind::projectile) continue;
                     auto& p = projectiles[hits[h].index];
-                    if (p.wall_bounce && !p.exploding) { drop_projectile(p, p.x <= camera - 190 ? 10 : -10, -17); p.wall_bounce = false; }
+                    if (p.wall_bounce && !p.exploding && std::find(wall_dropped.begin(), wall_dropped.end(), hits[h].index) == wall_dropped.end()) { drop_projectile(p, p.x <= camera - 190 ? 10 : -10, -17); }
+                    p.wall_bounce = false;
                 }
                 projectiles.insert(projectiles.end(), pending_effects.begin(), pending_effects.end());
+                for (std::size_t index = 0; index < ground_items.size(); ++index) {
+                    auto& item = ground_items[index];
+                    if (!item.active || item.owner < 0 || item.owner >= int(fighters.size())) continue;
+                    auto& holder = fighters[item.owner];
+                    if (holder.carried == int(index) || (holder.carried == ItemSlot::knocked && item.slot == ItemSlot::knocked_slot)) continue;
+                    item.owner = ItemOwnership::unowned; item.last_owner = ItemOwnership::detached; item.settled = false;
+                    item.frame = 3; item.vz = -7; item.vx = draw(7) - 3;
+                    item.x = holder.x; item.y = holder.y + 1;
+                }
+
+                for (const auto& p : projectiles) if (p.slot >= 0 && !p.active) slot_memory_[p.slot] = {p.type, p.y, p.owner};
                 std::erase_if(projectiles, [](const auto& p) { return !p.active; });
                 std::erase_if(blasts, [](const auto& blast) { return !blast.active; });
-                if (round.ongoing()) for (std::size_t i = 0; i < ground_items.size(); ++i)
-                    for (std::size_t j = 0; j < fighters.size(); ++j)
-                        if (ground_items[i].claim(fighters[j], int(j), int(i), ground_items, draw)) { emit(BattleSound::light_impact, fighters[j].x); break; }
-                if (round.ongoing()) {
-                    for (std::size_t i = 0; i < fighters.size(); ++i) {
-                        const bool left = controllers[i] >= 0 && display.held(controllers[i], Action::left);
-                        for (std::size_t j = 0; j < fighters.size(); ++j) {
-                            if (Grapple::lift(fighters, int(i), int(j)) || Grapple::clinch(fighters, int(i), int(j), left)) break;
-                        }
-                    }
-                    for (std::size_t i = 0; i < fighters.size(); ++i) {
-                        if (fighters[i].state >= FighterState::lift_base && fighters[i].state <= FighterState::lift_last) Grapple::update(fighters, int(i), draw);
-                        if (fighters[i].state >= FighterState::clinch_base && fighters[i].state <= FighterState::clinch_strike_last) Grapple::update_clinch(fighters, int(i));
-                    }
-                }
-                Grapple::release_abandoned(fighters);
+                for (auto& item : ground_items) if (!item.active && item.slot >= 0) { slot_memory_[item.slot] = {item.type, item.y, item.owner >= 0 ? item.owner : item.last_owner >= 0 ? item.last_owner : 8}; item.slot = -1; }
+                for (const auto& p : projectiles) if (p.slot >= 0) slot_memory_[p.slot] = {p.type, p.y, p.owner};
+                for (const auto& item : ground_items) if (item.slot >= 0) slot_memory_[item.slot] = {item.type, item.y, item.owner >= 0 ? item.owner : item.last_owner >= 0 ? item.last_owner : 8};
                 round.advance(fighters);
                 for (auto& fighter : fighters) fighter.coordinated = false;
                 for (std::size_t target = 0; target < fighters.size(); ++target) {

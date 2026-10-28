@@ -97,8 +97,8 @@ void Combatant::move(int camera, int upper, int lower, bool bridge, int winner, 
         if ((velocity_x > 3 && facing == 1) || (velocity_x < -3 && facing == -1)) action = FighterAction::forward_roll;
         if ((velocity_x > 3 && facing == -1) || (velocity_x < -3 && facing == 1)) action = FighterAction::backward_roll;
     }
-    const bool was_running = state / 10 == FighterStateGroup::running;
-    if (state <= FighterState::idle_last && dash_ready(winner < 0) && z == 0) state = FighterState::run_start;
+    const bool was_running = dispatch_state / 10 == FighterStateGroup::running;
+    if (dispatch_state <= FighterState::idle_last && state <= FighterState::idle_last && dash_ready(winner < 0) && z == 0) state = FighterState::run_start;
     if (was_running) {
         if (dash_ready(winner < 0)) facing = history.back() == InputKey::left ? -1 : 1;
         velocity_x = facing * 8;
@@ -170,7 +170,8 @@ void Combatant::move(int camera, int upper, int lower, bool bridge, int winner, 
         if (state == FighterState::falling && fall_effect == ImpactCode::fire_kind) action = FighterAction::burning;
     }
     if (balance <= 0) { state = FighterState::staggered; balance = 0; }
-    if (state / 10 == FighterStateGroup::staggering) {
+    const bool was_staggering = state / 10 == FighterStateGroup::staggering;
+    if (was_staggering) {
         if (state > FighterState::hit_reaction) {
             action = FighterAction::hit;
             if (balance >= CombatTuning::balance_recovery) { state = FighterState::idle; action = FighterAction::idle; }
@@ -180,7 +181,7 @@ void Combatant::move(int camera, int upper, int lower, bool bridge, int winner, 
             else action = FighterAction::hit;
         }
     }
-    if (state < FighterState::punch_start) {
+    if (!was_staggering && state < FighterState::punch_start) {
         if (action == FighterAction::landing) action = FighterAction::idle;
         if (velocity_x != 0 || velocity_y != 0) {
             if (++animation_step > CombatTuning::animation_cycle_frames) animation_step = 1;
@@ -257,10 +258,10 @@ bool Combatant::receive(const ImpactRegion& impact, Combatant& source, const std
     const bool unowned = origin == ImpactOrigin::unowned_item;
     const bool thrown_target = state == FighterState::thrown || state == FighterState::thrown_bounce;
     const bool friendly = !unowned && origin != ImpactOrigin::friendly_item && origin != ImpactOrigin::explosion && source.team == team &&
-        (origin == ImpactOrigin::fighter ? source.state != FighterState::thrown && source.state != FighterState::thrown_bounce : !thrown_target);
+        (origin == ImpactOrigin::fighter || origin == ImpactOrigin::blast ? source.state != FighterState::thrown && source.state != FighterState::thrown_bounce : !thrown_target);
     if (!active || (origin == ImpactOrigin::fighter && (!source.active || &source == this)) || friendly ||
-        (origin == ImpactOrigin::fighter ? source.priority : 0) < priority || effect_ticks != 0 ||
-        state / 10 == FighterStateGroup::downed || (state / 10 == FighterStateGroup::injured && (state != FighterState::falling || origin == ImpactOrigin::fighter || origin == ImpactOrigin::explosion)) ||
+        (origin == ImpactOrigin::fighter || origin == ImpactOrigin::blast ? source.priority : 0) < priority || effect_ticks != 0 ||
+        state / 10 == FighterStateGroup::downed || (state / 10 == FighterStateGroup::injured && (state != FighterState::falling || origin == ImpactOrigin::fighter || origin == ImpactOrigin::explosion || origin == ImpactOrigin::blast)) ||
         state / 10 == FighterStateGroup::angel || state / 20 == FighterStateGroup::lifted || (impact.damage <= 0 && impact.damage != ImpactCode::levitate) || impact.damage == ImpactCode::non_damaging ||
         std::abs(impact.y - y) >= (impact.damage == ImpactCode::levitate ? 30 : depth_tolerance) || std::abs(x - facing * 2 - impact.x) >= impact.width + 10 ||
         std::abs(z - 10 - impact.z) >= impact.height + 11) return false;
@@ -279,8 +280,9 @@ bool Combatant::receive(const ImpactRegion& impact, Combatant& source, const std
     if (damage_kind == ImpactCode::normal_kind || damage_kind == ImpactCode::explosion_kind || damage_kind == ImpactCode::piercing_kind || damage_kind == ImpactCode::blunt_kind)
         velocity_x = impact.push_x;
     health = std::max(0, health - damage);
+    carried = ItemSlot::knocked;
     if (state / 50 == FighterStateGroup::frozen) state = std::max(FighterState::frozen_end, state - damage);
-    if (!unowned && origin != ImpactOrigin::explosion && (origin != ImpactOrigin::fighter || (source.state / 10 != FighterStateGroup::thrown && source.invisible_ticks == 0))) {
+    if (!unowned && origin != ImpactOrigin::explosion && ((origin != ImpactOrigin::fighter && origin != ImpactOrigin::blast) || (source.state / 10 != FighterStateGroup::thrown && source.invisible_ticks == 0))) {
         source.add_score(damage * score_multiplier);
         source.energy = std::min(source.energy + damage * score_multiplier, source.max_energy);
     }
@@ -334,12 +336,10 @@ bool Combatant::activate_special(const SpecialMove& move) {
     return true;
 }
 
-bool Combatant::try_special(std::span<const SpecialMove> moves, bool holding_melee) {
+bool Combatant::try_sword(bool holding_melee) {
     const bool eligible = state / 10 == FighterStateGroup::idle || state / 10 == FighterStateGroup::running || state / 10 == FighterStateGroup::kicking || state / 10 == FighterStateGroup::punching || state / 20 == FighterStateGroup::clinching || state / 10 == FighterStateGroup::lifting || state / 50 == FighterStateGroup::item;
     if (!eligible || history[4] != InputKey::attack) return false;
-    const char forward = facing == 1 ? InputKey::right : InputKey::left;
-    const char back = facing == 1 ? InputKey::left : InputKey::right;
-    if (archetype == FighterType::sword_user && z == 0 && energy > 50 && !holding_melee &&
+    if (archetype == FighterType::sword_user && z == 0 && energy > 50 && !(holding_melee && state / 50 == FighterStateGroup::item) &&
         ((history[1] == InputKey::right && history[2] == InputKey::left && history[3] == InputKey::right) ||
          (history[1] == InputKey::left && history[2] == InputKey::right && history[3] == InputKey::left))) {
         std::fill(history.begin() + 1, history.end(), ' ');
@@ -347,6 +347,14 @@ bool Combatant::try_special(std::span<const SpecialMove> moves, bool holding_mel
         state = special_state(SpecialState::make_sword_2, 0);
         return true;
     }
+    return false;
+}
+
+bool Combatant::try_special(std::span<const SpecialMove> moves, bool holding_melee) {
+    const bool eligible = state / 10 == FighterStateGroup::idle || state / 10 == FighterStateGroup::running || state / 10 == FighterStateGroup::kicking || state / 10 == FighterStateGroup::punching || state / 20 == FighterStateGroup::clinching || state / 10 == FighterStateGroup::lifting || state / 50 == FighterStateGroup::item;
+    if (!eligible || history[4] != InputKey::attack) return false;
+    const char forward = facing == 1 ? InputKey::right : InputKey::left;
+    const char back = facing == 1 ? InputKey::left : InputKey::right;
     for (const auto& move : moves) {
         if (move.cost > energy) continue;
         const bool a = move.form == 'A' && z == 0 && history[1] == back && history[2] == forward && history[3] == forward;
@@ -425,7 +433,7 @@ std::optional<ImpactRegion> Combatant::special_frame(bool alternate_phase) {
                 }
                 ++projectile_count;
             }
-            if (projectile_count) { action = special_frames[1]; launched_projectile = special_frames[2]; }
+            if (projectile_count) { action = special_frames[1]; launched_projectile = special_frames[2]; burst_launch = true; }
         }
         if ((state == special_state(SpecialState::ball_kat, 12) && archetype == FighterType::cloning_fighter) || state == special_state(SpecialState::ball_kat, 15)) action = state = FighterState::idle;
         return std::nullopt;

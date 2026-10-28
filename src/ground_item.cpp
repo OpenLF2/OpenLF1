@@ -24,6 +24,7 @@ GroundItem GroundItem::create(const std::function<int(int)>& draw) {
 }
 void GroundItem::advance(const ProjectileType& d, int camera, int upper, int lower, const std::function<int(int)>& draw) {
     falling_impact.reset();
+    rest_marker = false;
     if (!active || owner >= 0) return;
     z += vz;
     const int ground = type == ItemType::stone || type == ItemType::box ? 0 : 3;
@@ -41,6 +42,7 @@ void GroundItem::advance(const ProjectileType& d, int camera, int upper, int low
         vx /= 2;
     }
     const bool random_facing = draw(2) != 0;
+    rest_marker = z == ground && active;
     settled = z == ground && vz == 0;
     if (settled) vy = 0;
     if (z < ground) {
@@ -104,23 +106,15 @@ ItemCollision GroundItem::collide(const ImpactRegion& hit, Combatant& attacker, 
     return ItemCollision::none;
 }
 bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, std::span<GroundItem> items, const std::function<int(int)>& draw) {
-    if (!active || owner >= 0 || !settled || !fighter.active || fighter.priority > AttackPriority::none || fighter.z != 0 ||
+    if (!active || owner >= 0 || !fighter.active || fighter.priority > AttackPriority::none || fighter.z != 0 ||
         fighter.history.back() != InputKey::attack || (fighter.state != FighterState::punch_active && fighter.state != FighterState::kick_active && fighter.state / 50 != FighterStateGroup::item) ||
         std::abs(fighter.y - y) >= 8 || std::abs(fighter.x - fighter.facing * 2 - x) >= 15 ||
         std::abs(fighter.z - 10 - z) >= 18) return false;
-    if (fighter.carried >= 0) {
-        if (fighter.carried >= int(items.size()) || &items[fighter.carried] == this) return false;
-        auto& previous = items[fighter.carried];
-        previous.owner = ItemOwnership::unowned;
-        previous.last_owner = ItemOwnership::detached;
-        if (previous.type == ItemType::summoned_weapon) previous.active = false;
-        else {
-            previous.settled = false; previous.frame = 3; previous.vz = -7;
-            previous.vx = draw ? draw(7) - 3 : 0;
-        }
-    }
+    if (fighter.state / 50 == FighterStateGroup::item && fighter.carried >= 0 && fighter.carried < int(items.size()) &&
+        items[fighter.carried].type == ItemType::summoned_weapon) items[fighter.carried].active = false;
     owner = fighter_index;
     last_owner = fighter_index;
+    just_picked = true;
     fighter.carried = item_index;
     fighter.state = FighterState::holding_item;
     fighter.action = FighterAction::landing;
@@ -170,39 +164,45 @@ void GroundItem::animate_holder(Combatant& fighter, int holder, const Projectile
 
 std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const ProjectileType& d, bool holding, const std::function<int(int)>& draw) {
     if (owner < 0 || !active) return std::nullopt;
-    if (!holding || !fighter.active || (fighter.state / 50 != FighterStateGroup::item && fighter.state / SpecialMoveId::state_stride != SpecialState::chung_kem)) {
-        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; if (holding) fighter.carried = ItemSlot::none; settled = false;
-        frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
-        if (type == ItemType::summoned_weapon) active = false;
-        return std::nullopt;
-    }
-    int step = fighter.animation_step == CombatTuning::animation_cycle_frames ? 2 : fighter.animation_step;
+    if (just_picked) { just_picked = false; fighter.action = FighterAction::landing; return std::nullopt; }
+    std::optional<ImpactRegion> swing;
+    const int step = fighter.animation_step == CombatTuning::animation_cycle_frames ? 2 : fighter.animation_step;
+    const int act = fighter.action;
     facing = fighter.facing;
-    x = fighter.x; y = fighter.y + 1; z = d.category == ItemCategory::melee ? step - 11 : d.category == ItemCategory::ranged ? step - 7 : -16;
+    if (d.category == ItemCategory::melee) {
+        if (act >= FighterAction::weapon_swing_first && act <= FighterAction::weapon_swing_last) { x = fighter.x + facing * 12; y = fighter.y - 1; z = -1; }
+        else if (act == FighterAction::item_windup) { x = fighter.x - facing * 19; y = fighter.y + 1; z = -14; }
+        else if (act == FighterAction::weapon_idle) {
+            x = fighter.x + facing * 18; y = fighter.y + 1; z = -7;
+            const int effect = (d.knockdown == ItemKnockdown::knockdown ? ImpactCode::knockdown : 25) + (d.effect == ImpactCode::normal_kind ? 1000 : 0);
+            swing = ImpactRegion{x, y, z, 9, 17, facing, facing * 7, -7, d.damage / 2 + d.effect * ImpactCode::scale, effect};
+        } else { x = fighter.x; y = fighter.y + 1; z = step - 11; }
+    } else if (d.category == ItemCategory::ranged) {
+        if (act > FighterAction::summon_weapon_offset) { x = fighter.x - facing * 7; y = fighter.y + 1; z = -23; }
+        else if (act == FighterAction::item_windup) {
+            x = fighter.x - facing * (type == ItemType::summoned_weapon ? 12 : 14); y = fighter.y + 1; z = type == ItemType::summoned_weapon ? -20 : -10;
+        } else if (act == FighterAction::drink_first || act == FighterAction::drink_second) {
+            x = fighter.x - facing * (variant == 1 ? 1 : 4); y = fighter.y - 1;
+            z = -(act == FighterAction::drink_first ? (variant == 1 ? 13 : 11) : (variant == 1 ? 12 : 10));
+        } else { x = fighter.x - facing * 6; y = fighter.y + 1; z = step - 7; }
+    } else if (d.category == ItemCategory::throwable) { x = fighter.x - facing * 2; y = fighter.y + 1; z = -16; }
+    vz = 0;
     frame = type == ItemType::summoned_weapon ? 3 - frame : 2;
-    if (frame < 1 || frame > 2) frame = 1;
-    if (fighter.action == FighterAction::bow_use || fighter.action == FighterAction::bow_release) frame = 4;
-    if (d.category == ItemCategory::melee && fighter.action >= FighterAction::weapon_swing_first && fighter.action <= FighterAction::weapon_swing_last) {
-        x += facing * 12; y = fighter.y - 1; z = -1; frame = 3;
-        return ImpactRegion{x + facing * 13, y, z, 5, 14, facing, facing * 5, -7, d.damage * 2 / 3 + d.effect * ImpactCode::scale, 1059};
+    if (act == FighterAction::item_windup) facing = -facing;
+    if (!holding || !fighter.active || (fighter.state / 50 != FighterStateGroup::item && fighter.state / SpecialMoveId::state_stride != SpecialState::chung_kem)) {
+        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; settled = false;
+        if (type == ItemType::summoned_weapon) active = false;
+        frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
+        return swing;
     }
-    if (d.category == ItemCategory::melee && fighter.action == FighterAction::item_windup) { x -= facing * 19; z = -14; facing = -facing; }
-    if (d.category == ItemCategory::melee && fighter.action == FighterAction::weapon_idle) {
-        x += facing * 18; z = -7; frame = 3;
-        const int effect = (d.knockdown == ItemKnockdown::knockdown ? ImpactCode::knockdown : 25) + (d.effect == ImpactCode::normal_kind ? 1000 : 0);
-        return ImpactRegion{x, y, z, 9, 17, fighter.facing, fighter.facing * 7, -7, d.damage / 2 + d.effect * ImpactCode::scale, effect};
+    if (act == FighterAction::weapon_idle) frame = 3;
+    if (d.category == ItemCategory::melee && act >= FighterAction::weapon_swing_first && act <= FighterAction::weapon_swing_last) {
+        frame = 3;
+        swing = ImpactRegion{x + facing * 13, y, z, 5, 14, facing, facing * 5, -7, d.damage * 2 / 3 + d.effect * ImpactCode::scale, 1059};
     }
-    if (d.category == ItemCategory::ranged) {
-        if (fighter.action >= FighterAction::summon_weapon) { x -= facing * 7; z = -23; }
-        else if (fighter.action == FighterAction::item_windup) { x -= facing * (type == ItemType::summoned_weapon ? 12 : 14); z = type == ItemType::summoned_weapon ? -20 : -10; facing = -facing; }
-        else if (fighter.action == FighterAction::drink_first || fighter.action == FighterAction::drink_second) {
-            x -= facing * (variant == 1 ? 1 : 4); y = fighter.y - 1;
-            z = -(fighter.action == FighterAction::drink_first ? (variant == 1 ? 13 : 11) : (variant == 1 ? 12 : 10));
-            frame = 1;
-        } else x -= facing * 6;
-    }
-    if (d.category == ItemCategory::throwable) x -= facing * 2;
-    return std::nullopt;
+    if (act == FighterAction::drink_first || act == FighterAction::drink_second) frame = 1;
+    if (act == FighterAction::bow_use || act == FighterAction::bow_release) frame = 4;
+    return swing;
 }
 
 void equip_initial_bows(std::span<Combatant> fighters, std::span<const int> controls, std::vector<GroundItem>& items) {

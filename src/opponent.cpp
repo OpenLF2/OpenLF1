@@ -83,7 +83,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
     int object_distance = companion ? companion_distance : nearest;
     if (self.tactic != OpponentTactic::heal && self.state / 50 != FighterStateGroup::item && (!target || (std::abs(self.y - target->y) > 6 && std::abs(self.x - target->x) > 25))) {
         for (const auto& item : items) {
-            if (!item.active || !item.settled || item.owner >= 0) continue;
+            if (!item.active || item.animation != 1 || item.owner >= 0) continue;
             const int distance = std::abs(item.x - self.x) + std::abs(item.y - self.y);
             if (!target || distance < object_distance) { object_distance = distance; object = &item; }
         }
@@ -132,6 +132,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
     } clinch_on_exit{resolve_clinch};
     const auto select_special = [&] {
         if (moves.empty() || ranges.empty()) return;
+        bool activated = false;
         int highest = -1;
         for (int i = 0; i < int(moves.size()); ++i) if (moves[i].cost <= self.energy) highest = i;
         for (int i = highest; i >= 0; --i) {
@@ -140,6 +141,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
             const int kind = move.frames[4];
             if (kind <= 0 || kind >= int(ranges.size()) || move.form > 'H') continue;
             if (i != highest && self.energy < 225 && self.energy - move.cost < moves[i + 1].cost) continue;
+            if (activated) continue;
             const auto& range = ranges[kind];
             const bool out_of_range = range.center < 0 || (kind == SpecialMoveId::ball_kat && self.ranged_cooldown > 0) ||
                 range.width + difficulty < std::abs(target->x - self.x - self.facing * range.center) || range.depth + difficulty < std::abs(target->y - self.y);
@@ -152,15 +154,15 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 if (type >= 0 && type < int(types.size()) && types[type].category < ItemCategory::throwable &&
                     !(self.archetype == FighterType::bow_user && type == ItemType::bow) && !(self.archetype == FighterType::sword_user && type == ItemType::sword) &&
                     (kind == SpecialMoveId::ball_kat || kind == SpecialMoveId::chi_bow || kind == SpecialMoveId::chung_kem || kind == SpecialMoveId::pow_four || kind == SpecialMoveId::hei_sheun || kind == SpecialMoveId::cheun_sun || kind == SpecialMoveId::kung_bow)) {
-                    self.state = FighterState::throw_item; self.action = FighterAction::item_windup; return;
+                    requested_key = InputKey::jump; return;
                 }
             }
             if (move.form == 'F' || move.form == 'G' || move.form == 'H') {
                 const bool existing_item = self.carried >= 0 && self.carried < int(items.size());
-                const bool holding = self.state / 50 == FighterStateGroup::item && (existing_item || self.item_pending.has_value());
-                const int type = holding ? (existing_item ? items[self.carried].type : *self.item_pending) : (self.archetype == FighterType::bow_user ? 7 : 0);
-                if (type < 0 || type >= int(types.size())) continue;
+                const bool holding = self.state / 50 == FighterStateGroup::item;
+                const int type = holding ? (existing_item ? items[self.carried].type : self.item_pending ? *self.item_pending : -1) : (self.archetype == FighterType::bow_user ? 7 : 0);
                 self.facing = self.x > target->x ? -1 : 1;
+                if (type < 0 || type >= int(types.size())) continue;
                 if (!holding) {
                     self.item_pending = type;
                     self.state = FighterState::holding_item;
@@ -169,15 +171,16 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 if ((move.form == 'F' && type != ItemType::bow) || (move.form == 'G' && type != ItemType::sword) ||
                     (move.form == 'H' && types[type].category != ItemCategory::melee)) continue;
                 if (move.form == 'H') {
-                    if (self.activate_special(move)) return;
+                    if (self.activate_special(move)) activated = true;
                 } else {
                     self.remember(InputKey::attack); requested_key = InputKey::attack;
                 }
                 continue;
             }
             self.facing = self.x > target->x ? -1 : 1;
-            if (self.activate_special(move)) return;
+            if (self.activate_special(move)) activated = true;
         }
+        if (activated) return;
         if (self.archetype == FighterType::cloning_fighter && std::abs(self.x - target->x) > 100 && self.energy > 200 && draw(5) > 0)
             self.tactic = OpponentTactic::invisibility;
     };

@@ -16,7 +16,7 @@ int Projectile::burst_direction(std::span<const int> used, const std::function<i
 ProjectileCollision Projectile::clash(const Projectile& other, std::span<const Combatant> fighters,
                       const ProjectileType& d, bool arrow_can_be_hit, bool other_can_hit, int other_width, int other_height) {
     const int damage_kind = (d.damage + d.effect * ImpactCode::scale) / ImpactCode::scale;
-    if (this == &other || !active || exploding || !other.active || other.exploding ||
+    if (this == &other || !active || exploding || !other.active ||
         owner < 0 || other.owner < 0 || owner >= int(fighters.size()) || other.owner >= int(fighters.size()) ||
         fighters[owner].team == fighters[other.owner].team || !other_can_hit ||
         (type == ItemType::arrow && other.type != ItemType::arrow && !arrow_can_be_hit) ||
@@ -26,7 +26,7 @@ ProjectileCollision Projectile::clash(const Projectile& other, std::span<const C
         type = ItemType::reflected_projectile;
         facing = other.facing;
         owner = other.owner;
-        target = -1;
+        if (target == owner) target = -1;
         return ProjectileCollision::reflected;
     }
     if (type == ItemType::reflected_projectile || type == ItemType::summoned_sword) return ProjectileCollision::none;
@@ -49,7 +49,7 @@ ProjectileCollision Projectile::intercept(const ImpactRegion& hit, Combatant& de
         if (defender.archetype == FighterType::projectile_reflector || type == ItemType::reflected_projectile || hit.damage / ImpactCode::scale == ImpactCode::freeze_kind) type = ItemType::reflected_projectile;
         facing = defender.action == FighterAction::guard ? (x > defender.x ? 1 : -1) : defender.facing;
         owner = defender_index;
-        target = -1;
+        if (target == owner) target = -1;
         return ProjectileCollision::reflected;
     }
     owner = defender_index;

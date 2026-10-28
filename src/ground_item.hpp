@@ -13,6 +13,8 @@ public:
     int slot = -1, type = 0, x = 0, y = 0, z = -120;
     int vx = 0, vy = 0, vz = 0, facing = 1, frame = 1, animation = 1, durability = 6, variant = 0;
     bool active = true, settled = false;
+    bool just_picked = false;
+    bool rest_marker = false;
     bool detonate = false;
     int owner = ItemOwnership::unowned;
     // -1 denotes a newly spawned item; -2 denotes an item deliberately disowned.

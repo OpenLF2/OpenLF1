@@ -270,10 +270,13 @@ struct ImpactRegion {
     int direction, push_x, push_z;
     int damage, effect;
 };
-enum class ImpactOrigin { fighter, item, friendly_item, unowned_item, explosion };
+enum class ImpactOrigin { fighter, item, friendly_item, unowned_item, explosion, blast };
 enum class BlastPattern { none, forward, centered, spread };
 namespace ItemSlot {
 inline constexpr int none = -1;
+// Left behind by a hit; it happens to equal the row of the ninth object slot.
+inline constexpr int knocked = -2;
+inline constexpr int knocked_slot = 9;
 }
 
 // State and rules independent of video, audio and input devices.
@@ -315,6 +318,8 @@ public:
     std::optional<ImpactRegion> body_impact;
     bool teleport_pending = false;
     int projectile_count = 0;
+    bool burst_launch = false;
+    int dispatch_state = 0;
     BlastPattern blast_pending = BlastPattern::none;
     std::optional<int> item_pending;
 
@@ -326,6 +331,7 @@ public:
     void remember(char key);
     bool teleport(std::span<const Combatant> targets, const std::function<int(int)>& draw, bool include_defeated = false);
     bool activate_special(const SpecialMove& move);
+    bool try_sword(bool holding_melee);
     bool try_special(std::span<const SpecialMove> moves, bool holding_melee = false);
     std::optional<ImpactRegion> special_frame(bool alternate_phase);
     bool can_strike() const;
