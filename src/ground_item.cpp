@@ -127,19 +127,14 @@ bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, st
     fighter.remember(InputKey::interrupted);
     return true;
 }
-std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const ProjectileType& d, int first_special_cost, bool round_active, const std::function<int(int)>& draw) {
-    if (owner < 0 || !active) return std::nullopt;
-    if (!round_active && fighter.state >= FighterState::item_idle_base && fighter.state < FighterState::item_throw_base) { fighter.state = FighterState::idle; fighter.action = FighterAction::idle; }
-    if (!fighter.active || (fighter.state / 50 != FighterStateGroup::item && fighter.state / SpecialMoveId::state_stride != SpecialState::chung_kem)) {
-        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; fighter.carried = ItemSlot::none; settled = false;
-        frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
-        if (type == ItemType::summoned_weapon) active = false;
-        return std::nullopt;
-    }
+void GroundItem::animate_holder(Combatant& fighter, int holder, const ProjectileType& d, int first_special_cost, bool round_active) {
     if (fighter.state < FighterState::item_throw_base) {
         if (fighter.action == FighterAction::landing) fighter.action = FighterAction::idle;
         if (fighter.velocity_x != 0 || fighter.velocity_y != 0)
             if (++fighter.animation_step > CombatTuning::animation_cycle_frames) fighter.animation_step = 1;
+        if (!(active && owner == holder && fighter.state != FighterState::idle && round_active)) {
+            fighter.carried = ItemSlot::none; fighter.state = FighterState::idle; fighter.action = FighterAction::idle;
+        }
         fighter.action = fighter.animation_step == CombatTuning::animation_cycle_frames ? FighterAction::walk_first : fighter.animation_step;
         if (type == ItemType::summoned_weapon) fighter.action += FighterAction::summon_weapon_offset;
         if (d.category == ItemCategory::throwable && fighter.action < FighterAction::punch_hit) fighter.action += FighterAction::carry_offset;
@@ -154,7 +149,7 @@ std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const Project
         } else if (fighter.energy < fighter.max_energy) fighter.energy = std::min(fighter.max_energy, fighter.energy + 11);
         if (fighter.state > FighterState::consume_finish) {
             fighter.state = FighterState::idle; fighter.action = FighterAction::idle; fighter.carried = ItemSlot::none; active = false; owner = ItemOwnership::unowned;
-            return std::nullopt;
+            return;
         }
     }
     if (fighter.state / 10 == FighterStateGroup::using_weapon) {
@@ -170,6 +165,16 @@ std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const Project
         }
         if (fighter.state == FighterState::weapon_finish) fighter.state = FighterState::item_idle_base;
         ++fighter.state;
+    }
+}
+
+std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const ProjectileType& d, bool holding, const std::function<int(int)>& draw) {
+    if (owner < 0 || !active) return std::nullopt;
+    if (!holding || !fighter.active || (fighter.state / 50 != FighterStateGroup::item && fighter.state / SpecialMoveId::state_stride != SpecialState::chung_kem)) {
+        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; if (holding) fighter.carried = ItemSlot::none; settled = false;
+        frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
+        if (type == ItemType::summoned_weapon) active = false;
+        return std::nullopt;
     }
     int step = fighter.animation_step == CombatTuning::animation_cycle_frames ? 2 : fighter.animation_step;
     facing = fighter.facing;
@@ -201,7 +206,7 @@ std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const Project
 }
 
 void equip_initial_bows(std::span<Combatant> fighters, std::span<const int> controls, std::vector<GroundItem>& items) {
-    while (items.size() < 6) { GroundItem empty; empty.active = false; items.push_back(empty); }
+    while (items.size() < 5) { GroundItem empty; empty.active = false; items.push_back(empty); }
     for (int i = 0; i < int(fighters.size()) && i < int(controls.size()); ++i) {
         auto& fighter = fighters[i];
         if (!fighter.active || fighter.archetype != FighterType::bow_user || controls[i] < 0) continue;
@@ -209,6 +214,7 @@ void equip_initial_bows(std::span<Combatant> fighters, std::span<const int> cont
         if (slot == items.end()) break;
         const int index = int(slot - items.begin());
         *slot = GroundItem{};
+        slot->slot = 7 + int(std::count_if(items.begin(), items.end(), [](const auto& item) { return item.active; }));
         slot->type = ItemType::bow; slot->owner = slot->last_owner = i; slot->durability = 500;
         slot->x = fighter.x; slot->y = fighter.y + 1; slot->z = fighter.animation_step - 11; slot->facing = fighter.facing;
         fighter.carried = index; fighter.state = FighterState::holding_item; fighter.action = FighterAction::idle;

@@ -41,7 +41,7 @@ else()
     set(OPENLF1_ZLIB ZLIB::ZLIB)
 endif()
 set(OPENLF1_GAME_SOURCES
-    src/combat.cpp src/opponent.cpp src/roster.cpp src/round.cpp
+    src/combat.cpp src/field.cpp src/opponent.cpp src/roster.cpp src/round.cpp
     src/projectile.cpp src/tournament.cpp src/ground_item.cpp
     src/palette_cycle.cpp src/blast.cpp src/grapple.cpp)
 add_executable(openlf1 src/main.cpp src/archive.cpp src/display.cpp ${OPENLF1_GAME_SOURCES})

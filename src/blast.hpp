@@ -7,7 +7,7 @@
 
 class Blast {
 public:
-    int owner = 0, x = 0, y = 0, z = 0, frame = 1, offset = 0;
+    int slot = -1, owner = 0, x = 0, y = 0, z = 0, frame = 1, offset = 0;
     bool active = true;
     std::optional<ImpactRegion> advance(int damage);
 };

@@ -29,7 +29,7 @@ struct ProjectileType {
 };
 class Projectile {
 public:
-    int owner = 0, type = 0, x = 0, y = 0, z = -8, facing = 1;
+    int slot = -1, owner = 0, type = 0, x = 0, y = 0, z = -8, facing = 1;
     int vx = 0, vy = 0, frame = 1, target = -1, lifetime = 30, durability = 1;
     bool active = true, exploding = false, wall_bounce = false;
     static int burst_direction(std::span<const int> used, const std::function<int(int)>& draw);

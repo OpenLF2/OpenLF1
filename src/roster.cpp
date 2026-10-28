@@ -14,12 +14,13 @@ MatchSetup Roster::create(int mode, int option, std::array<Participant, GameLimi
     std::array<bool, GameLimits::fighter_slots> active{};
     std::array<int, 4> cursor{};
     if (mode == GameMode::free_for_all) {
-        for (int i = 0; i < GameLimits::fighter_slots; ++i) { active[i] = i < option; team[i] = i + 1; px[i] = draw(320); py[i] = draw(80) + 60; }
+        for (int i = 0; i < GameLimits::fighter_slots; ++i) { active[i] = i < option; team[i] = i + 1; px[i] = draw(320) & 0xff; py[i] = draw(80) + 60; }
     } else if (option <= 3) {
         const int offset = option == 1 ? 2 : 4;
         cursor = {0, offset, 0, 0};
         for (int i = 0; i < GameLimits::fighter_slots; ++i) {
             active[i] = option == 1 ? i < 4 : option == 2 ? i != 3 && i != 7 : true;
+            if (option == 1 && i >= 4) continue;
             team[i] = i < offset ? 1 : 2;
             px[i] = i < offset ? 40 : 216;
             py[i] = i % 4 * 20 + 70;
@@ -28,7 +29,11 @@ MatchSetup Roster::create(int mode, int option, std::array<Participant, GameLimi
         cursor = {0, 2, 4, 6};
         constexpr int xpos[8] = {35, 45, 221, 211, 35, 45, 221, 211};
         constexpr int ypos[8] = {90, 85, 90, 85, 110, 115, 110, 115};
-        for (int i = 0; i < GameLimits::fighter_slots; ++i) { active[i] = option == 5 || i < 6; team[i] = i / 2 + 1; px[i] = xpos[i]; py[i] = ypos[i]; }
+        for (int i = 0; i < GameLimits::fighter_slots; ++i) {
+            active[i] = option == 5 || i < 6;
+            if (!active[i]) continue;
+            team[i] = i / 2 + 1; px[i] = xpos[i]; py[i] = ypos[i];
+        }
         if (option == 4) px[4] = px[5] = 160;
     }
     int next = 0;
