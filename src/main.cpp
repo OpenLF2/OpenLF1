@@ -32,6 +32,13 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
+ 
+#ifdef __DJGPP__
+// main and Screen::present together exceed DJGPP's default 512 KiB stack.
+extern "C" {
+unsigned int _stklen = 1024 * 1024;
+}
+#endif
 
 namespace {
 using Clock = std::chrono::steady_clock;
