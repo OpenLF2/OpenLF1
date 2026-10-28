@@ -37,11 +37,21 @@ jobs:
       - name: Download artifacts of last successful build
         uses: actions/download-artifact@v8
         with:
+          pattern: openlf1-*
           run-id: ${{ steps.build.outputs.run_id }}
           github-token: ${{ github.token }}
           path: artifacts
           merge-multiple: true
           skip-decompress: true
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          unexpected=$(find artifacts -type f ! -name 'openlf1-*' -print -quit)
+          if [ -n "$unexpected" ]; then
+            echo "::error::Unexpected release artifact: $unexpected"
+            exit 1
+          fi
 
       - name: Upload to latest release
         run: |
