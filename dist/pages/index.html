@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenLF1 — an open-source Little Fighter (1995) reimplementation</title>
+<meta name="description" content="OpenLF1 is an open-source reimplementation of Little Fighter (1995). Play the browser build or build it from source.">
+<meta name="theme-color" content="#101215">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #101215;
+    --bg-alt: #191c21;
+    --card: #20242a;
+    --card-border: #363b44;
+    --text: #f1f2f4;
+    --text-dim: #b4bac4;
+    --accent: #c6ccd4;
+    --accent-2: #e2c27c;
+    --link: #d3d9e2;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg, var(--bg) 0%, #1b1e23 100%);
+    color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--link); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 1.5rem; }
+
+  header.hero {
+    padding: 4.5rem 0 3.5rem;
+    text-align: center;
+    background:
+      radial-gradient(60% 50% at 50% 0%, rgba(198, 204, 212, 0.16), transparent 70%),
+      radial-gradient(40% 40% at 85% 15%, rgba(226, 194, 124, 0.08), transparent 70%);
+  }
+  .hero img { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  .hero h1 { font-size: 2.6rem; margin: 1.1rem 0 .4rem; letter-spacing: -.02em; }
+  .hero p.tagline { font-size: 1.15rem; color: var(--text-dim); max-width: 42rem; margin: 0 auto 1.8rem; }
+  .cta-row { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: .7rem 1.4rem; border-radius: 999px; font-weight: 600;
+    text-decoration: none; border: 1px solid transparent; transition: transform .15s ease, background .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: #14171b; }
+  .btn.primary:hover { background: #d9dee6; }
+  .btn.secondary { background: transparent; color: var(--text); border-color: var(--card-border); }
+  .btn.secondary:hover { background: var(--card); }
+  button.btn { font: inherit; cursor: pointer; }
+  button.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  section { padding: 3.2rem 0; }
+  section h2 { font-size: 1.6rem; margin-bottom: .3rem; }
+  section p.lede { color: var(--text-dim); margin-top: 0; max-width: 46rem; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.8rem; }
+  .features .card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 1.2rem 1.3rem; }
+  .features .card h3 { margin: 0 0 .4rem; font-size: 1.05rem; }
+  .features .card p { margin: 0; color: var(--text-dim); font-size: .92rem; }
+
+  #play { background: var(--bg-alt); border-radius: var(--radius); border: 1px solid var(--card-border); padding: 2rem; margin-top: 1rem; }
+  .play-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem 1.2rem; margin-top: 1.5rem; }
+  button#start {
+    padding: .75rem 1.3rem; border-radius: 999px; border: none; font-weight: 700; font-size: 1rem;
+    background: var(--accent-2); color: #2e240f;
+  }
+  button#start:disabled { background: #3d424a; color: #8e949d; }
+  button#fullscreen { padding: .65rem 1.2rem; font-size: .92rem; }
+  #chosen { flex: 1 1 10rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: .88rem; }
+  progress#progress { display: block; width: 100%; height: .6rem; margin-top: .9rem; accent-color: var(--accent-2); }
+  progress#progress[hidden] { display: none; }
+  @media (max-width: 480px) { .wrap { padding: 0 1rem; } #play { padding: 1.25rem; } }
+  p#status { margin: .9rem 0 0; color: var(--text-dim); font-size: .92rem; min-height: 1.3em; }
+  .stage {
+    position: relative;
+    background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border);
+    box-shadow: 0 12px 40px rgba(0,0,0,.45); margin-top: 1rem; width: 100%;
+  }
+  /* !important: SDL 3.4 writes an inline size onto the canvas (even 1px x 1px) when pixel ratio != 1, which would otherwise win. */
+  canvas#canvas { display: block; width: 100% !important; height: auto !important; aspect-ratio: 960 / 600; background: #000; }
+  /* The stage goes fullscreen, not the canvas: the canvas just fills it, so SDL sees an ordinary canvas that changes size. */
+  .stage:fullscreen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
+  .stage:-webkit-full-screen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
+  .stage:fullscreen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
+  .stage:-webkit-full-screen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
+  details { margin-top: 1rem; }
+  details summary { cursor: pointer; color: var(--text-dim); font-size: .85rem; }
+  details pre { max-height: 10rem; overflow: auto; white-space: pre-wrap; font-size: .78rem; background: #000; border-radius: 8px; padding: .6rem .8rem; color: #d8dde4; }
+  .note { font-size: .85rem; color: var(--text-dim); }
+
+  footer { padding: 2.5rem 0 3.5rem; border-top: 1px solid var(--card-border); color: var(--text-dim); font-size: .9rem; }
+  footer .links { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-top: .6rem; }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <img src="icon.svg" alt="">
+      <h1>OpenLF1</h1>
+      <p class="tagline">An open-source reimplementation of <strong>Little Fighter (1995)</strong> —
+        the original's introduction, menus, character selection, and side-view battles.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="#play">Play in your browser</a>
+        <a class="btn secondary" href="https://github.com/OpenLF2/OpenLF1">View source on GitHub</a>
+        <a class="btn secondary" href="https://github.com/OpenLF2/OpenLF1/releases">Download</a>
+        <a class="btn secondary" href="https://openlf2.github.io/OpenLF2/">Visit OpenLF2</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <section id="features">
+      <h2>What you can play</h2>
+      <p class="lede">OpenLF1 recreates the original game's presentation and early gameplay while the
+        remaining features are filled in.</p>
+      <div class="features">
+        <div class="card">
+          <h3>Introduction &amp; menus</h3>
+          <p>The original introduction, menu flow, and character selection screens.</p>
+        </div>
+        <div class="card">
+          <h3>Side-view battles</h3>
+          <p>Local battles with the original fighters, stages, and items.</p>
+        </div>
+        <div class="card">
+          <h3>Keyboard &amp; gamepad</h3>
+          <p>Keyboard controls or up to three controllers, with a fullscreen toggle.</p>
+        </div>
+        <div class="card">
+          <h3>Original game data</h3>
+          <p>Reads the Little Fighter ZIP archive directly. Nothing is extracted or modified.</p>
+        </div>
+        <div class="card">
+          <h3>Runs locally</h3>
+          <p>The browser build downloads the game once and then runs entirely on your device.</p>
+        </div>
+        <div class="card">
+          <h3>MIT-licensed</h3>
+          <p>OpenLF1's code, scripts, and documentation are MIT-licensed. The original game is not included.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="play">
+      <h2>Play in your browser</h2>
+      <p class="lede">This build runs entirely on your device. Press <b>Start game</b> to download the
+        original Little Fighter (1995) game data from archive.org (about 455&nbsp;KB, checked by
+        SHA-256), or select your own game ZIP manually. Your browser saves the ZIP for future visits;
+        a selected file is never uploaded anywhere.</p>
+
+      <div class="play-controls">
+        <button id="choose" class="btn secondary" type="button">Select ZIP manually…</button>
+        <input id="game" type="file" accept=".zip,application/zip,application/x-zip-compressed" aria-label="Little Fighter game ZIP" hidden>
+        <span id="chosen" hidden></span>
+        <button id="start" class="btn" disabled>Start game</button>
+        <button id="forget" class="btn secondary" type="button" hidden>Forget saved ZIP</button>
+        <button id="fullscreen" class="btn secondary" type="button" disabled>Fullscreen</button>
+      </div>
+      <progress id="progress" hidden></progress>
+      <p id="status" role="status">Loading WebAssembly…</p>
+      <div class="stage" id="stage">
+        <canvas id="canvas" width="960" height="600" tabindex="0" aria-label="OpenLF1 game canvas"></canvas>
+      </div>
+      <details>
+        <summary>Diagnostic output</summary>
+        <pre id="log"></pre>
+      </details>
+    </section>
+  </div>
+
+  <footer>
+    <div class="wrap">
+      <div>OpenLF1 is not affiliated with or endorsed by the creators of
+        <a href="https://lf2.net/lf1.html">Little Fighter (1995)</a>.</div>
+      <div class="links">
+        <a href="https://github.com/OpenLF2/OpenLF1">GitHub</a>
+        <a href="https://github.com/OpenLF2/OpenLF1/blob/main/LICENSE">MIT License</a>
+        <a href="THIRD-PARTY-NOTICES.md">Third-party notices</a>
+        <a href="https://openlf2.github.io/OpenLF2/">OpenLF2</a>
+      </div>
+    </div>
+  </footer>
+
+<script src="game-store.js"></script>
+<script>
+  const gameInput = document.getElementById('game');
+  const chooseButton = document.getElementById('choose');
+  const startButton = document.getElementById('start');
+  const forgetButton = document.getElementById('forget');
+  const fullscreenButton = document.getElementById('fullscreen');
+  const chosen = document.getElementById('chosen');
+  const status = document.getElementById('status');
+  const log = document.getElementById('log');
+  const canvas = document.getElementById('canvas');
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  let ready = false;
+  let started = false;
+  let exited = false;
+  let downloading = false;
+  let selectionChanged = false;
+  let selectedFile = null;
+  let savedFile = null;
+
+  function message(value) {
+    log.textContent += value + '\n';
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function describe(file) {
+    return file.name + ' (' + Math.round(file.size / 1024) + ' KB)';
+  }
+
+  function update() {
+    startButton.disabled = !ready || started || downloading;
+    chooseButton.disabled = started || downloading;
+    forgetButton.hidden = !savedFile;
+    forgetButton.disabled = downloading;
+    fullscreenButton.disabled = !document.fullscreenEnabled;
+  }
+
+  async function readGameZip(file) {
+    if (!file) throw new Error('Select the Little Fighter ZIP first.');
+    if (!file.size || file.size > 64 * 1024 * 1024) throw new Error('That ZIP is empty or too large.');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || [0x03, 0x05, 0x07].indexOf(bytes[2]) < 0)
+      throw new Error('That file is not a ZIP archive.');
+    return bytes;
+  }
+
+  async function launch(file, saveSelection) {
+    if (!ready || started) return;
+    started = true;
+    exited = false;
+    update();
+    try {
+      status.textContent = 'Loading game data…';
+      const bytes = await readGameZip(file);
+      if (saveSelection) {
+        status.textContent = 'Saving game data in browser storage…';
+        try {
+          await gameStore.save(file);
+          savedFile = file;
+          chosen.hidden = false;
+          chosen.textContent = 'Saved: ' + describe(file);
+        } catch (error) {
+          message('Could not save game data in browser storage: ' + error);
+        }
+      }
+      status.textContent = 'Starting OpenLF1…';
+      Module.FS.writeFile('/game.zip', bytes);
+      Module.callMain(['/game.zip']);
+      if (!exited) status.textContent = 'Running OpenLF1…';
+    } catch (error) {
+      if (exited) return;
+      started = false;
+      if (!saveSelection) {
+        savedFile = null;
+        try { await gameStore.remove(); }
+        catch (storageError) { message('Could not remove saved game data: ' + storageError); }
+      }
+      status.textContent = 'Could not start: ' + error.message;
+      message(String(error));
+      update();
+    }
+  }
+
+  const cachedGame = gameStore.load().catch(error => {
+    message('Browser game storage unavailable: ' + error);
+    return null;
+  });
+
+  const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  fullscreenButton.addEventListener('click', () => {
+    if (fullscreenElement()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+    }
+  });
+
+  chooseButton.addEventListener('click', () => gameInput.click());
+  gameInput.addEventListener('change', () => {
+    const file = gameInput.files[0];
+    if (!file) return;
+    selectionChanged = true;
+    selectedFile = file;
+    chosen.hidden = false;
+    chosen.textContent = describe(file);
+    status.textContent = 'Ready. Press Start game.';
+    update();
+  });
+
+  async function startGame() {
+    if (selectedFile) return launch(selectedFile, true);
+    downloading = true;
+    progress.hidden = false;
+    progress.value = 0;
+    progress.max = 465592;
+    update();
+    try {
+      const file = await gameDownload((received, total) => {
+        progress.value = received;
+        status.textContent = 'Downloading Little Fighter (1995) from archive.org: ' + (received / 1024).toFixed(0) + ' / ' + (total / 1024).toFixed(0) + ' KB';
+      });
+      downloading = false;
+      progress.hidden = true;
+      selectedFile = file;
+      chosen.hidden = false;
+      chosen.textContent = 'Downloaded: ' + describe(file);
+      update();
+      await launch(file, true);
+    } catch (error) {
+      downloading = false;
+      progress.hidden = true;
+      update();
+      status.textContent = 'Download failed. Press Start game to retry, or select your ZIP manually.';
+      message(String(error));
+    }
+  }
+
+  startButton.addEventListener('click', startGame);
+  forgetButton.addEventListener('click', async () => {
+    try { await gameStore.remove(); }
+    catch (error) { message('Could not remove saved game data: ' + error); }
+    location.reload();
+  });
+
+  var Module = {
+    canvas: canvas,
+    noInitialRun: true,
+    print: message,
+    printErr: message,
+    onAbort: reason => {
+      exited = true;
+      started = true;
+      status.textContent = 'Game stopped: ' + reason;
+      message(reason);
+      update();
+    },
+    onExit: code => {
+      exited = true;
+      started = true;
+      if (code) {
+        status.textContent = 'OpenLF1 exited with status ' + code + '. Reload the page to try again.';
+        if (savedFile) {
+          savedFile = null;
+          gameStore.remove().catch(error => message('Could not remove saved game data: ' + error));
+        }
+      } else {
+        status.textContent = 'OpenLF1 closed. Reload the page to start again.';
+      }
+      update();
+    },
+    onRuntimeInitialized: () => {
+      ready = true;
+      status.textContent = 'Checking for a saved ZIP…';
+      update();
+      cachedGame.then(file => {
+        if (started || selectionChanged) {
+          if (!started) status.textContent = 'Ready. Press Start game.';
+          return;
+        }
+        if (file) {
+          savedFile = file;
+          selectedFile = file;
+          chosen.hidden = false;
+          chosen.textContent = 'Saved: ' + describe(file);
+          status.textContent = 'Loading saved game data…';
+          launch(file, false);
+        } else {
+          status.textContent = 'Ready. Press Start game to download from archive.org, or select your ZIP manually.';
+        }
+        update();
+      });
+    }
+  };
+</script>
+<script src="openlf1.js"></script>
+</body>
+</html>

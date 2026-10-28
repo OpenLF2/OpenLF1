@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.openlf2.OpenLF1</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>OpenLF1</name>
+  <summary>Play Little Fighter (1995) with a modern engine</summary>
+  <description>
+    <p>OpenLF1 is an open-source reimplementation of Little Fighter (1995). It includes the introduction, menus, character selection, and side-view battles.</p>
+    <ul>
+      <li>Play local battles with keyboard or gamepad controls</li>
+      <li>Choose from the original fighters, stages, and items</li>
+      <li>Use the original game data from a Little Fighter ZIP archive</li>
+    </ul>
+  </description>
+  <url type="homepage">https://openlf2.github.io/OpenLF1/</url>
+  <url type="vcs-browser">https://github.com/OpenLF2/OpenLF1</url>
+  <url type="bugtracker">https://github.com/OpenLF2/OpenLF1/issues</url>
+  <url type="help">https://github.com/OpenLF2/OpenLF1/blob/main/README.md</url>
+  <developer id="io.github.openlf2">
+    <name>OpenLF1 contributors</name>
+  </developer>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-cartoon">moderate</content_attribute>
+  </content_rating>
+  <launchable type="desktop-id">openlf1.desktop</launchable>
+  <categories>
+    <category>Game</category>
+    <category>ArcadeGame</category>
+  </categories>
+  <keywords>
+    <keyword>Little Fighter</keyword>
+    <keyword>LF1</keyword>
+    <keyword>fighting</keyword>
+    <keyword>arcade</keyword>
+  </keywords>
+  <supports>
+    <control>keyboard</control>
+    <control>gamepad</control>
+    <internet>offline-only</internet>
+  </supports>
+  <provides>
+    <binary>openlf1</binary>
+  </provides>
+  <releases>
+    <release version="1.0" date="2026-10-28"/>
+  </releases>
+</component>

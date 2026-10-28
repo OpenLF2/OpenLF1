@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 OpenLF1
+
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=OpenLF1
+GenericName=Fighting Game
+Comment=Play Little Fighter (1995) with a modern engine
+Exec=openlf1
+Icon=openlf1
+Terminal=false
+StartupNotify=true
+Categories=Game;ArcadeGame;
+Keywords=game;fighting;Little Fighter;LF1;

@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 OpenLF1
+
+name: Upload to latest release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to take the last successful build from
+        default: main
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download artifacts of last successful build
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          run_id=$(gh run list --workflow build.yml --branch "${{ inputs.branch }}" \
+            --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful build found on ${{ inputs.branch }}"
+            exit 1
+          fi
+          echo "build.yml -> run $run_id"
+          gh run download "$run_id" --dir artifacts
+
+      - name: Upload to latest release
+        run: |
+          set -euo pipefail
+          if ! tag=$(gh release view --json tagName -q .tagName); then
+            echo "::error::No release found"
+            exit 1
+          fi
+          echo "Uploading to release $tag"
+          mapfile -d '' files < <(find artifacts -type f -print0)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No release artifacts found"
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            gh release upload "$tag" "$file" --clobber
+          done
+          echo "Uploaded ${#files[@]} files to $tag"

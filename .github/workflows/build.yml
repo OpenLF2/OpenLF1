@@ -1,0 +1,245 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 OpenLF1
+
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            platform: Win32
+          - arch: x64
+            platform: x64
+          - arch: arm64
+            platform: ARM64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A ${{ matrix.platform }} -DOPENLF1_BUNDLE_DEPENDENCIES=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Rename artifact
+        run: Copy-Item build/Release/openlf1.exe openlf1-${{ matrix.arch }}.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-windows-${{ matrix.arch }}
+          path: openlf1-${{ matrix.arch }}.exe
+          archive: false
+          if-no-files-found: error
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: ubuntu-22.04
+            linuxdeploy: i386
+          - arch: x64
+            runner: ubuntu-22.04
+            linuxdeploy: x86_64
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            linuxdeploy: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_DEPS: ninja-build libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev libdecor-0-dev libgl1-mesa-dev libegl1-mesa-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (x86)
+        if: matrix.arch == 'x86'
+        run: |
+          docker run --rm --platform linux/386 -e BUILD_DEPS="$BUILD_DEPS" \
+            -v "$PWD:/work" -w /work debian:bookworm bash -euc '
+              apt-get update
+              apt-get install -y --no-install-recommends cmake g++ ca-certificates curl file $BUILD_DEPS
+              cmake -S . -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON
+              cmake --build /tmp/build --parallel 2
+              curl -fL --retry 3 -o /tmp/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.linuxdeploy }}.AppImage
+              chmod +x /tmp/linuxdeploy
+              install -Dm644 packaging/io.github.openlf2.OpenLF1.metainfo.xml /tmp/AppDir/usr/share/metainfo/io.github.openlf2.OpenLF1.metainfo.xml
+              APPIMAGE_EXTRACT_AND_RUN=1 OUTPUT=openlf1-${{ matrix.arch }}.AppImage /tmp/linuxdeploy --appdir /tmp/AppDir --executable /tmp/build/openlf1 --desktop-file packaging/openlf1.desktop --icon-file packaging/openlf1.svg --output appimage
+            '
+      - name: Build (native)
+        if: matrix.arch != 'x86'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $BUILD_DEPS
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON
+          cmake --build build --parallel 2
+          curl -fL --retry 3 -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.linuxdeploy }}.AppImage
+          chmod +x linuxdeploy
+          install -Dm644 packaging/io.github.openlf2.OpenLF1.metainfo.xml AppDir/usr/share/metainfo/io.github.openlf2.OpenLF1.metainfo.xml
+          APPIMAGE_EXTRACT_AND_RUN=1 OUTPUT=openlf1-${{ matrix.arch }}.AppImage ./linuxdeploy --appdir AppDir --executable build/openlf1 --desktop-file packaging/openlf1.desktop --icon-file packaging/openlf1.svg --output appimage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-linux-${{ matrix.arch }}
+          path: openlf1-${{ matrix.arch }}.AppImage
+          archive: false
+          if-no-files-found: error
+
+  deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            deb_arch: i386
+            runner: ubuntu-22.04
+            platform: linux/386
+          - arch: x64
+            deb_arch: amd64
+            runner: ubuntu-22.04
+            platform: linux/amd64
+          - arch: arm64
+            deb_arch: arm64
+            runner: ubuntu-22.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_DEPS: ninja-build libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev libdecor-0-dev libgl1-mesa-dev libegl1-mesa-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Debian package
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -e BUILD_DEPS="$BUILD_DEPS" \
+            -v "$PWD:/work" -w /work debian:bookworm bash -euc '
+              apt-get update
+              apt-get install -y --no-install-recommends cmake g++ dpkg-dev file ca-certificates $BUILD_DEPS
+              cmake -S . -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON -DBUILD_TESTING=OFF
+              cmake --build /tmp/build --parallel 2
+              cpack --config /tmp/build/CPackConfig.cmake -G DEB
+              mv /tmp/build/*.deb /work/openlf1-${{ matrix.arch }}.deb
+              test "$(dpkg-deb -f /work/openlf1-${{ matrix.arch }}.deb Architecture)" = "${{ matrix.deb_arch }}"
+            '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-deb-${{ matrix.arch }}
+          path: openlf1-${{ matrix.arch }}.deb
+          archive: false
+          if-no-files-found: error
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x86_64
+          - arch: arm64
+            cmake_arch: arm64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPENLF1_BUNDLE_DEPENDENCIES=ON -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      - name: Build
+        run: cmake --build build --parallel 3
+      - name: Sign and package
+        run: |
+          set -euo pipefail
+          codesign --force --deep --sign - build/openlf1.app
+          codesign --verify --deep --strict build/openlf1.app
+          ditto -c -k --sequesterRsrc --keepParent build/openlf1.app openlf1-macos-${{ matrix.arch }}.zip
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^project(OpenLF1 VERSION \([0-9.]*\) LANGUAGES CXX)$/\1/p' CMakeLists.txt)
+          test -n "$version"
+          test -f build/openlf1.app/Contents/Resources/openlf1.icns
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/openlf1.app/Contents/Info.plist)" = "$version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' build/openlf1.app/Contents/Info.plist)" = "openlf1.icns"
+          test "$(lipo -archs build/openlf1.app/Contents/MacOS/openlf1)" = "${{ matrix.cmake_arch }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-macos-${{ matrix.arch }}
+          path: openlf1-macos-${{ matrix.arch }}.zip
+          archive: false
+          if-no-files-found: error
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build WebAssembly
+        run: bash dist/build-web.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-web.zip
+          path: build/openlf1-web.zip
+          archive: false
+          if-no-files-found: error
+
+  pages:
+    needs: web
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v8
+        with:
+          name: openlf1-web.zip
+          path: site
+          skip-decompress: true
+      - name: Extract site
+        run: |
+          cd site
+          python3 -m zipfile -e openlf1-web.zip .
+          rm openlf1-web.zip
+          rm index.html
+          cp ../dist/pages/index.html index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  dos:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch SDL3 source
+        run: cmake -DOPENLF1_SDL3_OUTPUT_DIR="$PWD" -P cmake/fetch-sdl3.cmake
+      - name: Build DOS executable
+        run: |
+          docker build -t openlf1-dos - <<'EOF'
+          FROM jagholin/dosbox-gcc@sha256:475d7cf72a1c71b6f88e092a6d0a6003a298d07b3471584dcfd6cf34900123a1
+          RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build ca-certificates && rm -rf /var/lib/apt/lists/*
+          EOF
+          docker run --rm --entrypoint /bin/bash \
+            -v "$PWD:/work" -v "$PWD/sdl3:/sdl:ro" -w /work openlf1-dos -lc '
+              set -e
+              cmake -S . -B /tmp/dosbuild -G Ninja \
+                -DCMAKE_TOOLCHAIN_FILE=/sdl/build-scripts/i586-pc-msdosdjgpp.cmake \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DOPENLF1_BUNDLE_DEPENDENCIES=ON \
+                -DFETCHCONTENT_SOURCE_DIR_SDL3=/sdl
+              cmake --build /tmp/dosbuild --target openlf1 --parallel
+              cp /tmp/dosbuild/openlf1.exe /work/openlf1-dos.exe
+            '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openlf1-dos
+          path: openlf1-dos.exe
+          archive: false
+          if-no-files-found: error
