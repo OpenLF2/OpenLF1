@@ -17,8 +17,7 @@
     button { padding: .55rem 1rem; cursor: pointer; }
     button:disabled { cursor: default; }
     canvas { display: block; width: 100%; max-width: 960px; height: auto; aspect-ratio: 960 / 600; background: #000; }
-    #stage:fullscreen { background: #000; width: 100vw; height: 100vh; height: 100dvh; display: flex; }
-    #stage:fullscreen canvas { width: 100%; max-width: none; height: 100%; aspect-ratio: auto; }
+    canvas:fullscreen { max-width: none; }
     .hint { color: #b8bec9; font-size: .9rem; }
     pre { max-height: 12rem; overflow: auto; white-space: pre-wrap; font-size: .8rem; }
     @media (max-width: 480px) { body { padding: 1rem; } }
@@ -36,7 +35,7 @@
     <input id="game" type="file" accept=".zip,application/zip,application/x-zip-compressed" aria-label="Little Fighter game ZIP" hidden>
     <span id="chosen" hidden></span>
     <button id="forget" type="button" hidden>Forget saved ZIP</button>
-    <button id="fullscreen" type="button" disabled>Fullscreen</button>
+    <button id="fullscreen" type="button" hidden>Fullscreen</button>
   </div>
   <progress id="progress" hidden></progress>
   <p id="status" role="status">Loading WebAssembly…</p>
@@ -56,7 +55,6 @@
   const status = document.getElementById('status');
   const log = document.getElementById('log');
   const canvas = document.getElementById('canvas');
-  const stage = document.getElementById('stage');
   const progress = document.getElementById('progress');
   let ready = false;
   let started = false;
@@ -80,7 +78,6 @@
     chooseButton.disabled = started || downloading;
     forgetButton.hidden = !savedFile;
     forgetButton.disabled = downloading;
-    fullscreenButton.disabled = !document.fullscreenEnabled;
   }
 
   async function readGameZip(file) {
@@ -114,6 +111,7 @@
       status.textContent = 'Starting OpenLF1…';
       Module.FS.writeFile('/game.zip', bytes);
       Module.callMain(['/game.zip']);
+      if (canFullscreen) fullscreenButton.hidden = false;
       if (!exited) status.textContent = 'Running OpenLF1…';
     } catch (error) {
       if (exited) return;
@@ -135,13 +133,22 @@
   });
 
   const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
-  fullscreenButton.addEventListener('click', () => {
-    if (fullscreenElement()) {
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else {
-      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
-    }
-  });
+  const canFullscreen = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  if (canFullscreen) {
+    fullscreenButton.addEventListener('click', () => {
+      if (fullscreenElement()) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else if (typeof Module.requestFullscreen === 'function') {
+        Module.requestFullscreen();
+      }
+    });
+    const onFullscreenChange = () => {
+      fullscreenButton.textContent = fullscreenElement() ? 'Exit fullscreen' : 'Fullscreen';
+      if (fullscreenElement()) canvas.focus({preventScroll: true});
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  }
 
   chooseButton.addEventListener('click', () => gameInput.click());
   gameInput.addEventListener('change', () => {

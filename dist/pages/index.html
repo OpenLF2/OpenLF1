@@ -81,13 +81,9 @@
     background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border);
     box-shadow: 0 12px 40px rgba(0,0,0,.45); margin-top: 1rem; width: 100%;
   }
-  /* !important: SDL 3.4 writes an inline size onto the canvas (even 1px x 1px) when pixel ratio != 1, which would otherwise win. */
-  canvas#canvas { display: block; width: 100% !important; height: auto !important; aspect-ratio: 960 / 600; background: #000; }
-  /* The stage goes fullscreen, not the canvas: the canvas just fills it, so SDL sees an ordinary canvas that changes size. */
-  .stage:fullscreen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
-  .stage:-webkit-full-screen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
-  .stage:fullscreen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
-  .stage:-webkit-full-screen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
+  canvas#canvas { display: block; background: #000; }
+  /* !important: SDL writes an inline size onto the canvas (even 1px x 1px) when pixel ratio != 1, which would otherwise win. */
+  canvas#canvas:not(:fullscreen) { width: 100% !important; height: auto !important; aspect-ratio: 960 / 600; }
   details { margin-top: 1rem; }
   details summary { cursor: pointer; color: var(--text-dim); font-size: .85rem; }
   details pre { max-height: 10rem; overflow: auto; white-space: pre-wrap; font-size: .78rem; background: #000; border-radius: 8px; padding: .6rem .8rem; color: #d8dde4; }
@@ -159,7 +155,7 @@
         <span id="chosen" hidden></span>
         <button id="start" class="btn" disabled>Start game</button>
         <button id="forget" class="btn secondary" type="button" hidden>Forget saved ZIP</button>
-        <button id="fullscreen" class="btn secondary" type="button" disabled>Fullscreen</button>
+        <button id="fullscreen" class="btn secondary" type="button" hidden>Fullscreen</button>
       </div>
       <progress id="progress" hidden></progress>
       <p id="status" role="status">Loading WebAssembly…</p>
@@ -197,7 +193,6 @@
   const status = document.getElementById('status');
   const log = document.getElementById('log');
   const canvas = document.getElementById('canvas');
-  const stage = document.getElementById('stage');
   const progress = document.getElementById('progress');
   let ready = false;
   let started = false;
@@ -221,7 +216,6 @@
     chooseButton.disabled = started || downloading;
     forgetButton.hidden = !savedFile;
     forgetButton.disabled = downloading;
-    fullscreenButton.disabled = !document.fullscreenEnabled;
   }
 
   async function readGameZip(file) {
@@ -255,6 +249,7 @@
       status.textContent = 'Starting OpenLF1…';
       Module.FS.writeFile('/game.zip', bytes);
       Module.callMain(['/game.zip']);
+      if (canFullscreen) fullscreenButton.hidden = false;
       if (!exited) status.textContent = 'Running OpenLF1…';
     } catch (error) {
       if (exited) return;
@@ -276,13 +271,22 @@
   });
 
   const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
-  fullscreenButton.addEventListener('click', () => {
-    if (fullscreenElement()) {
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else {
-      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
-    }
-  });
+  const canFullscreen = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  if (canFullscreen) {
+    fullscreenButton.addEventListener('click', () => {
+      if (fullscreenElement()) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else if (typeof Module.requestFullscreen === 'function') {
+        Module.requestFullscreen();
+      }
+    });
+    const onFullscreenChange = () => {
+      fullscreenButton.textContent = fullscreenElement() ? 'Exit fullscreen' : 'Fullscreen';
+      if (fullscreenElement()) canvas.focus({preventScroll: true});
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  }
 
   chooseButton.addEventListener('click', () => gameInput.click());
   gameInput.addEventListener('change', () => {
