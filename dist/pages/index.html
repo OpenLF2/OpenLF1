@@ -81,9 +81,12 @@
     background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border);
     box-shadow: 0 12px 40px rgba(0,0,0,.45); margin-top: 1rem; width: 100%;
   }
-  canvas#canvas { display: block; background: #000; }
   /* !important: SDL writes an inline size onto the canvas (even 1px x 1px) when pixel ratio != 1, which would otherwise win. */
-  canvas#canvas:not(:fullscreen) { width: 100% !important; height: auto !important; aspect-ratio: 960 / 600; }
+  canvas#canvas { display: block; width: 100% !important; height: auto !important; aspect-ratio: 960 / 600; background: #000; }
+  .stage:fullscreen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
+  .stage:-webkit-full-screen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; margin: 0; display: flex; }
+  .stage:fullscreen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
+  .stage:-webkit-full-screen canvas#canvas { width: 100% !important; height: 100% !important; aspect-ratio: auto; }
   details { margin-top: 1rem; }
   details summary { cursor: pointer; color: var(--text-dim); font-size: .85rem; }
   details pre { max-height: 10rem; overflow: auto; white-space: pre-wrap; font-size: .78rem; background: #000; border-radius: 8px; padding: .6rem .8rem; color: #d8dde4; }
@@ -193,6 +196,7 @@
   const status = document.getElementById('status');
   const log = document.getElementById('log');
   const canvas = document.getElementById('canvas');
+  const stage = document.getElementById('stage');
   const progress = document.getElementById('progress');
   let ready = false;
   let started = false;
@@ -276,17 +280,28 @@
     fullscreenButton.addEventListener('click', () => {
       if (fullscreenElement()) {
         (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-      } else if (typeof Module.requestFullscreen === 'function') {
-        Module.requestFullscreen();
+      } else {
+        (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
       }
     });
     const onFullscreenChange = () => {
       fullscreenButton.textContent = fullscreenElement() ? 'Exit fullscreen' : 'Fullscreen';
       if (fullscreenElement()) canvas.focus({preventScroll: true});
     };
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('stagefullscreenchange', onFullscreenChange);
   }
+  let replays = [];
+  function replayResize(event) {
+    if (event && event.isTrusted === false) return;
+    replays.forEach(clearTimeout);
+    replays = [60, 250, 600, 1200].map(delay => setTimeout(() => window.dispatchEvent(new Event('resize')), delay));
+  }
+  window.addEventListener('resize', replayResize);
+  window.addEventListener('orientationchange', replayResize);
+  for (const name of ['fullscreenchange', 'webkitfullscreenchange']) {
+    document.addEventListener(name, event => { event.stopImmediatePropagation(); document.dispatchEvent(new Event('stagefullscreenchange')); replayResize(event); }, true);
+  }
+  if (screen.orientation) screen.orientation.addEventListener('change', replayResize);
 
   chooseButton.addEventListener('click', () => gameInput.click());
   gameInput.addEventListener('change', () => {
