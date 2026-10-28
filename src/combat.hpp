@@ -310,6 +310,7 @@ public:
     bool computer = false;
     bool active = true;
     bool eliminated = false;
+    bool just_eliminated = false;
     int death_pose = 0;
     std::array<char, 5> history{};
     std::array<int, 5> special_frames{};

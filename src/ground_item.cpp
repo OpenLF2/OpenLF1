@@ -193,7 +193,7 @@ std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const Project
         owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; settled = false;
         if (type == ItemType::summoned_weapon) active = false;
         frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
-        return swing;
+        return std::nullopt;
     }
     if (act == FighterAction::weapon_idle) frame = 3;
     if (d.category == ItemCategory::melee && act >= FighterAction::weapon_swing_first && act <= FighterAction::weapon_swing_last) {

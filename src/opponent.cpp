@@ -11,7 +11,7 @@ bool Opponent::weapon_attacking(std::span<Combatant> fighters, std::size_t index
     if (index >= fighters.size() || draw(difficulty) > 0) return false;
     auto& self = fighters[index];
     for (const auto& projectile : projectiles) {
-        if (!projectile.active || projectile.exploding || projectile.owner < 0 || projectile.owner >= int(fighters.size()) ||
+        if (!projectile.active || projectile.exploding || projectile.slot < 8 || projectile.slot >= 30 || projectile.owner < 0 || projectile.owner >= int(fighters.size()) ||
             fighters[projectile.owner].team == self.team || std::abs(self.y - projectile.y) >= 7 || std::abs(self.x - projectile.x) >= 60) continue;
         if (self.state <= FighterState::free_last) self.velocity_y = self.y > upper + lower ? -3 : 3;
         return true;

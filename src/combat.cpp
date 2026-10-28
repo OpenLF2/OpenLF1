@@ -154,7 +154,7 @@ void Combatant::move(int camera, int upper, int lower, bool bridge, int winner, 
             if (state == FighterState::downed_end) {
                 state = FighterState::landing;
                 effect_ticks = 6;
-                if (health <= 0) { eliminated = true; death_pose = action; state = FighterState::angel; action = FighterAction::death_pose; effect_ticks = 0; }
+                if (health <= 0) { eliminated = true; just_eliminated = true; death_pose = action; state = FighterState::angel; action = FighterAction::death_pose; effect_ticks = 0; }
                 else if (archetype == FighterType::cloning_fighter && health == max_health) {
                     velocity_x = revival_velocity; velocity_z = -20; z = -1;
                     state = FighterState::idle; action = FighterAction::airborne; effect_ticks = 0;
