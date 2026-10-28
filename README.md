@@ -4,13 +4,7 @@
 
 OpenLF1 is an open-source reimplementation of **Little Fighter (1995)**.
 It uses the original game data to recreate the original's introduction, menus, character
-selection, and side-view battles. It is not yet a playable replacement for the original.
-
-## What you can play
-
-OpenLF1 currently includes the introduction, parts of the original menus, a character
-selection screen, and a basic battle scene. Many gameplay sequences, attacks, and
-features are still missing.
+selection, and side-view battles.
 
 ## Beyond the original
 
@@ -22,6 +16,18 @@ features are still missing.
 
 Try the [WebAssembly build in your browser](https://openlf2.github.io/OpenLF1/). It can download
 the game data from archive.org, stores it in browser storage, and runs locally.
+
+### Downloads
+
+| Platform | Downloads |
+| --- | --- |
+| Windows | [x86](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x86.exe) · [x64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x64.exe) · [ARM64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-arm64.exe) |
+| Linux | AppImage: [x86](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x86.AppImage) · [x64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x64.AppImage) · [ARM64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-arm64.AppImage)<br>DEB: [x86](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x86.deb) · [x64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-x64.deb) · [ARM64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-arm64.deb) |
+| macOS | [ARM64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-macos-arm64.zip) · [x64](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-macos-x64.zip) |
+| DOS | [DOS build](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-dos.exe) |
+| Web | [Browser build](https://github.com/OpenLF2/OpenLF1/releases/latest/download/openlf1-web.zip) |
+
+See the [full release page](https://github.com/OpenLF2/OpenLF1/releases) for release notes.
 
 ### Game data
 
