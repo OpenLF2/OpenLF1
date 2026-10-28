@@ -237,8 +237,10 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
         if (self.tactic == OpponentTactic::aerial_attack || self.tactic == OpponentTactic::aerial_followup) tactic_x = draw(3) + 3;
         if (self.tactic == OpponentTactic::heal) tactic_y = draw(2) + 4;
         else if (self.tactic == OpponentTactic::summon_weapon || self.tactic == OpponentTactic::align_after_summon || self.tactic == OpponentTactic::aerial_attack || self.tactic == OpponentTactic::aerial_followup) tactic_y = draw(2) + 2;
-        if (self.tactic != OpponentTactic::heal && self.state / 10 == FighterStateGroup::running)
-            self.history.back() = target->y > self.y ? InputKey::down : InputKey::up;
+        if (self.tactic != OpponentTactic::heal && self.state / 10 == FighterStateGroup::running) {
+            requested_key = target->y > self.y ? InputKey::down : InputKey::up;
+            self.history.back() = requested_key;
+        }
         const bool mobile = self.state <= FighterState::free_last || self.state == FighterState::jump_start || self.state == FighterState::jump_launch ||
                             self.state / 10 == FighterStateGroup::lifting || self.state == FighterState::holding_item || (self.tactic == OpponentTactic::heal && self.state / 10 == FighterStateGroup::running);
         if (!mobile) return;
