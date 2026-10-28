@@ -29,8 +29,9 @@ static void apply_opponent_key(std::span<Combatant> fighters, std::size_t index,
     if (key == InputKey::jump || key == InputKey::attack) Grapple::throw_held(fighters, int(index));
     if ((key != InputKey::attack && key != InputKey::jump) || self.state / 10 != FighterStateGroup::holding || self.action == FighterAction::landing) return;
     const bool has_item = self.carried >= 0 && self.carried < int(items.size());
-    if (!has_item && !self.item_pending) return;
-    const int type = has_item ? items[self.carried].type : *self.item_pending;
+    const bool held_reference = ((has_item && !items[self.carried].active) || self.carried == ItemSlot::knocked) && self.held_object_type >= 0;
+    if (!has_item && !self.item_pending && !held_reference) return;
+    const int type = held_reference ? self.held_object_type : has_item ? items[self.carried].type : *self.item_pending;
     if (type < 0 || type >= int(types.size())) return;
     const int category = types[type].category;
     if (key == InputKey::attack && type == ItemType::drink && category == ItemCategory::ranged) { self.state = FighterState::consume_item; self.action = FighterAction::drink_first; self.velocity_x /= 3; self.remember(InputKey::interrupted); }
@@ -156,6 +157,10 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 if (range.center < 0) self.tactic = -range.center;
                 continue;
             }
+            if (self.state / 10 == FighterStateGroup::running) {
+                requested_key = target->y > self.y ? InputKey::down : InputKey::up;
+                self.history.back() = requested_key;
+            }
             if (self.state / 50 == FighterStateGroup::item && self.carried >= 0 && self.carried < int(items.size())) {
                 const int type = held_type();
                 if (type >= 0 && type < int(types.size()) && types[type].category < ItemCategory::throwable &&
@@ -273,7 +278,14 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
             self.facing = target->x > self.x ? -1 : 1;
             self.history[2] = self.history[3] = self.history[4] = self.facing == 1 ? InputKey::right : InputKey::left;
             self.velocity_y = (self.y > target->y ? 1 : -1) * tactic_y;
-            if (distance > 95) { activate(SpecialMoveId::heal_self); self.tactic = OpponentTactic::none; }
+            if (distance > 95 || target->just_eliminated || (self.health < self.health / 11 && std::abs(target->y - self.y) > 18)) {
+                if (self.state / 10 == FighterStateGroup::running) {
+                    requested_key = target->y > self.y ? InputKey::down : InputKey::up;
+                    self.history.back() = requested_key;
+                }
+                activate(SpecialMoveId::heal_self);
+                self.tactic = OpponentTactic::none;
+            }
         } else if (self.tactic == OpponentTactic::make_sword) {
             if (distance >= 70 && self.state / 50 != FighterStateGroup::item && draw(10) == 0) activate(SpecialMoveId::make_sword);
             self.tactic = OpponentTactic::none;
@@ -370,6 +382,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
     if (target->state / 10 != FighterStateGroup::injured && std::abs(target->x - target->facing * 2 - self.x + self.facing * 2) < 24 && dy < 8) {
         if (draw(5) > 1 && target->state / SpecialMoveId::state_stride != SpecialState::hung_ball) requested_key = InputKey::attack;
     } else if (target->state / 10 == FighterStateGroup::injured && dx < 10 && dy < 4) {
+        if (self.state / 10 == FighterStateGroup::running) self.history.back() = target->y > self.y ? InputKey::down : InputKey::up;
         requested_key = InputKey::attack;
         self.remember(InputKey::attack);
     }

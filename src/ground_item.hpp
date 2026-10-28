@@ -17,6 +17,7 @@ public:
     bool rest_marker = false;
     int marker_x = 0, marker_y = 0;
     bool detonate = false;
+    bool adrift = false;
     int owner = ItemOwnership::unowned;
     // -1 denotes a newly spawned item; -2 denotes an item deliberately disowned.
     int last_owner = ItemOwnership::unowned;
@@ -27,7 +28,8 @@ public:
     bool react_to_fighter_hit(const ProjectileType& definition, int damage, int source_action, const std::function<int(int)>& draw);
     bool claim(Combatant& fighter, int fighter_index, int item_index, const ImpactRegion& marker,
                std::span<GroundItem> items = {}, const std::function<int(int)>& draw = {});
-    void animate_holder(Combatant& fighter, int holder, const ProjectileType& definition, int first_special_cost, bool round_active, int held_type);
+    void animate_holder(Combatant& fighter, int holder, const ProjectileType& definition, int first_special_cost, bool round_active, int held_type,
+                        int knocked_type, bool knocked_throwable);
     std::optional<ImpactRegion> follow(Combatant& fighter, const ProjectileType& definition, bool holding, const std::function<int(int)>& draw = {});
     void advance(const ProjectileType& definition, int camera, int upper, int lower, const std::function<int(int)>& draw);
 };

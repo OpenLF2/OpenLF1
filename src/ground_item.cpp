@@ -7,6 +7,7 @@
 
 GroundItem GroundItem::create(const std::function<int(int)>& draw) {
     GroundItem result;
+    result.variant = -1;
     for (;;) {
         result.type = draw(10);
         const bool rejected = result.type == ItemType::bomb || result.type == ItemType::sword || result.type == ItemType::plus || result.type == ItemType::bow;
@@ -44,7 +45,7 @@ void GroundItem::advance(const ProjectileType& d, int camera, int upper, int low
     const bool random_facing = draw(2) != 0;
     rest_marker = z == ground && active;
     settled = z == ground && vz == 0;
-    if (settled) vy = 0;
+    if (rest_marker) vy = 0;
     if (z < ground) {
         do {
             if (++animation > 6) animation = 1;
@@ -107,7 +108,7 @@ ItemCollision GroundItem::collide(const ImpactRegion& hit, Combatant& attacker, 
     return ItemCollision::none;
 }
 bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, const ImpactRegion& marker, std::span<GroundItem> items, const std::function<int(int)>& draw) {
-    if (!active || owner >= 0 || !fighter.active || fighter.priority > AttackPriority::none || fighter.z != 0 ||
+    if (!active || !fighter.active || fighter.priority > AttackPriority::none || fighter.z != 0 ||
         fighter.history.back() != InputKey::attack || (fighter.state != FighterState::punch_active && fighter.state != FighterState::kick_active && fighter.state / 50 != FighterStateGroup::item) ||
         std::abs(fighter.y - marker.y) >= 8 || std::abs(fighter.x - fighter.facing * 2 - marker.x) >= marker.width + 10 ||
         std::abs(fighter.z - 10 - marker.z) >= marker.height + 11) return false;
@@ -122,17 +123,20 @@ bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, co
     fighter.remember(InputKey::interrupted);
     return true;
 }
-void GroundItem::animate_holder(Combatant& fighter, int holder, const ProjectileType& d, int first_special_cost, bool round_active, int held_type) {
+void GroundItem::animate_holder(Combatant& fighter, int holder, const ProjectileType& d, int first_special_cost, bool round_active, int held_type,
+                                int knocked_type, bool knocked_throwable) {
     if (fighter.state < FighterState::item_throw_base) {
         if (fighter.action == FighterAction::landing) fighter.action = FighterAction::idle;
         if (fighter.velocity_x != 0 || fighter.velocity_y != 0)
             if (++fighter.animation_step > CombatTuning::animation_cycle_frames) fighter.animation_step = 1;
-        if (!(active && owner == holder && fighter.state != FighterState::idle && round_active)) {
+        bool throwable = d.category == ItemCategory::throwable;
+        if (!(active && !adrift && owner == holder && fighter.state != FighterState::idle && round_active)) {
             fighter.carried = ItemSlot::none; fighter.state = FighterState::idle; fighter.action = FighterAction::idle;
+            held_type = knocked_type; throwable = knocked_throwable;
         }
         fighter.action = fighter.animation_step == CombatTuning::animation_cycle_frames ? FighterAction::walk_first : fighter.animation_step;
-        if (type == ItemType::summoned_weapon) fighter.action += FighterAction::summon_weapon_offset;
-        if (d.category == ItemCategory::throwable && fighter.action < FighterAction::punch_hit) fighter.action += FighterAction::carry_offset;
+        if (held_type == ItemType::summoned_weapon) fighter.action += FighterAction::summon_weapon_offset;
+        if (throwable && fighter.action < FighterAction::punch_hit) fighter.action += FighterAction::carry_offset;
     }
     if (fighter.state / 20 == FighterStateGroup::consuming) {
         fighter.action = fighter.state % 2 == 0 ? FighterAction::drink_first : FighterAction::drink_second;
@@ -165,7 +169,7 @@ void GroundItem::animate_holder(Combatant& fighter, int holder, const Projectile
 
 std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const ProjectileType& d, bool holding, const std::function<int(int)>& draw) {
     if (owner < 0 || !active) return std::nullopt;
-    if (just_picked) { just_picked = false; fighter.action = FighterAction::landing; return std::nullopt; }
+    if (just_picked) { just_picked = false; z += vz; fighter.action = FighterAction::landing; return std::nullopt; }
     std::optional<ImpactRegion> swing;
     const int step = fighter.animation_step == CombatTuning::animation_cycle_frames ? 2 : fighter.animation_step;
     const int act = fighter.action;

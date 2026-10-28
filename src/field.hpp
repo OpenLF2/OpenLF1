@@ -28,7 +28,7 @@ namespace Slots {
 inline constexpr int objects_end = 30;
 inline constexpr int first_spawn = 25;
 }
-struct HitEffect { int x, y, z, facing, frame = 1, age = 0, slot = -1; };
+struct HitEffect { int x, y, z, facing, frame = 1, age = 0, slot = -1; bool doomed = false, as_item = false; };
 
 class Field {
 public:
@@ -63,9 +63,9 @@ public:
 private:
     std::array<int, hit_slots> hit_belong_{};
     bool thing_in_slot(int slot) const;
-    struct SlotMemory { int type = 0, y = 0, owner = 0; };
-    std::array<SlotMemory, hit_slots> slot_memory_{};
-    std::array<int, hit_slots> slot_life_{};
+    struct SlotMemory { int type = 0, y = 0, owner = 0, facing = 1; };
+    std::array<SlotMemory, hit_slots + 1> slot_memory_{};
+    std::array<int, hit_slots + 1> slot_life_{};
     struct Input {
         Field& field;
         bool held(int player, Action direction) const { return field.held && field.held(player, direction); }

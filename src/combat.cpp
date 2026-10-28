@@ -13,7 +13,8 @@ void Combatant::advance(bool slow_phase, bool alternating_phase, bool round_acti
     if (slow_phase) {
         if (archetype == FighterType::regenerating_fighter && alternating_phase && health > 0) {
             recovery_phase_ = (recovery_phase_ + 1) % CombatTuning::regeneration_cycle;
-            if (recovery_phase_ < CombatTuning::regeneration_ticks) health = std::min(health + 1, max_health);
+            if (recovery_phase_ < CombatTuning::regeneration_ticks) ++health;
+            health = std::min(health, max_health);
         }
         const bool resting = state <= FighterState::idle_last && velocity_x == 0 && velocity_y == 0 && velocity_z == 0 && round_active;
         if (resting && (health < CombatTuning::rest_health || energy < CombatTuning::rest_energy)) {
@@ -372,7 +373,7 @@ bool Combatant::try_special(std::span<const SpecialMove> moves, bool holding_mel
 bool Combatant::teleport(std::span<const Combatant> targets, const std::function<int(int)>& draw, bool include_defeated) {
     const Combatant* nearest = nullptr;
     for (const auto& target : targets) {
-        if (&target == this || !target.active || target.team == team || (!include_defeated && target.state / 10 == FighterStateGroup::angel)) continue;
+        if (&target == this || !target.active || target.just_eliminated || target.team == team || (!include_defeated && target.state / 10 == FighterStateGroup::angel)) continue;
         if (!nearest || std::abs(target.x - x) + std::abs(target.y - y) < std::abs(nearest->x - x) + std::abs(nearest->y - y)) nearest = &target;
     }
     if (!nearest) return false;

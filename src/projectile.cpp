@@ -26,7 +26,6 @@ ProjectileCollision Projectile::clash(const Projectile& other, std::span<const C
         type = ItemType::reflected_projectile;
         facing = other.facing;
         owner = other.owner;
-        if (target == owner) target = -1;
         return ProjectileCollision::reflected;
     }
     if (type == ItemType::reflected_projectile || type == ItemType::summoned_sword) return ProjectileCollision::none;
@@ -49,10 +48,9 @@ ProjectileCollision Projectile::intercept(const ImpactRegion& hit, Combatant& de
         if (defender.archetype == FighterType::projectile_reflector || type == ItemType::reflected_projectile || hit.damage / ImpactCode::scale == ImpactCode::freeze_kind) type = ItemType::reflected_projectile;
         facing = defender.action == FighterAction::guard ? (x > defender.x ? 1 : -1) : defender.facing;
         owner = defender_index;
-        if (target == owner) target = -1;
         return ProjectileCollision::reflected;
     }
-    if (type == ItemType::reflected_projectile) return ProjectileCollision::none;
+    if (type == ItemType::reflected_projectile || type == ItemType::summoned_sword) return ProjectileCollision::none;
     defender.energy = std::min(defender.max_energy, defender.energy + 7);
     owner = defender_index;
     return ProjectileCollision::impact;
@@ -62,7 +60,8 @@ ImpactRegion Projectile::advance(const ProjectileType& d, std::span<const Combat
                                  const std::function<int(int)>& draw) {
     if (type == ItemType::sword_projectile && --lifetime <= 0) { active = false; return {}; }
     if (d.motion == ItemMotion::homing || ((type == ItemType::summoned_weapon || type == ItemType::random_target_projectile) && lifetime > 0)) {
-        if (owner < 0 || owner >= int(fighters.size())) { active = false; return {}; }
+        const bool fighter_owner = owner >= 0 && owner < int(fighters.size());
+        const int owner_team = fighter_owner ? fighters[owner].team : owner == ItemOwnership::detached ? 0 : -1;
         if ((type == ItemType::summoned_weapon || type == ItemType::random_target_projectile) && lifetime > 0) --lifetime;
         if (target < 0 || target == owner || target >= int(fighters.size()) || !fighters[target].active || fighters[target].just_eliminated) {
             target = -1;
@@ -71,13 +70,13 @@ ImpactRegion Projectile::advance(const ProjectileType& d, std::span<const Combat
             int count = 0;
             for (int i = 0; i < int(fighters.size()); ++i) {
                 const auto& f = fighters[i];
-                if (!f.active || f.just_eliminated || i == owner || f.team == fighters[owner].team || (type != ItemType::random_target_projectile && f.state / 10 == FighterStateGroup::angel)) continue;
+                if (!f.active || f.just_eliminated || i == owner || f.team == owner_team || (type != ItemType::random_target_projectile && f.state / 10 == FighterStateGroup::angel)) continue;
                 if (type == ItemType::random_target_projectile && count < int(candidates.size())) { candidates[count++] = i; continue; }
                 const int distance = std::abs(f.x - x) + std::abs(f.y - y);
                 if (distance < nearest) { nearest = distance; target = i; }
             }
             if (type == ItemType::random_target_projectile && count > 0) target = candidates[draw ? draw(count) : 0];
-            if (target < 0) target = owner;
+            if (target < 0 && fighter_owner) target = owner;
             vx = facing * 17;
         }
         if (target >= 0) {
