@@ -116,6 +116,7 @@ inline constexpr int evasive = 101;
 namespace FighterType {
 inline constexpr int bow_user = 4;
 inline constexpr int sword_user = 5;
+inline constexpr int restricted_ball_user = 8;
 inline constexpr int projectile_reflector = 9;
 inline constexpr int cloning_fighter = 10;
 inline constexpr int regenerating_fighter = 11;
@@ -312,6 +313,8 @@ public:
     bool eliminated = false;
     bool just_eliminated = false;
     int death_pose = 0;
+    int thrown_object = -1;
+    int held_object_type = -1;
     std::array<char, 5> history{};
     std::array<int, 5> special_frames{};
     std::optional<int> launched_projectile;

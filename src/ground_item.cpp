@@ -58,6 +58,7 @@ void GroundItem::advance(const ProjectileType& d, int camera, int upper, int low
         vz += 3;
     }
     if (settled) vx = 0;
+    marker_x = x; marker_y = y;
     x += vx; y = std::clamp(y + vy, upper - 3, lower + 2);
     if (x <= camera - 190 || x >= camera + 510) {
         if (durability > 8) {
@@ -105,11 +106,11 @@ ItemCollision GroundItem::collide(const ImpactRegion& hit, Combatant& attacker, 
     }
     return ItemCollision::none;
 }
-bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, std::span<GroundItem> items, const std::function<int(int)>& draw) {
+bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, const ImpactRegion& marker, std::span<GroundItem> items, const std::function<int(int)>& draw) {
     if (!active || owner >= 0 || !fighter.active || fighter.priority > AttackPriority::none || fighter.z != 0 ||
         fighter.history.back() != InputKey::attack || (fighter.state != FighterState::punch_active && fighter.state != FighterState::kick_active && fighter.state / 50 != FighterStateGroup::item) ||
-        std::abs(fighter.y - y) >= 8 || std::abs(fighter.x - fighter.facing * 2 - x) >= 15 ||
-        std::abs(fighter.z - 10 - z) >= 18) return false;
+        std::abs(fighter.y - marker.y) >= 8 || std::abs(fighter.x - fighter.facing * 2 - marker.x) >= marker.width + 10 ||
+        std::abs(fighter.z - 10 - marker.z) >= marker.height + 11) return false;
     if (fighter.state / 50 == FighterStateGroup::item && fighter.carried >= 0 && fighter.carried < int(items.size()) &&
         items[fighter.carried].type == ItemType::summoned_weapon) items[fighter.carried].active = false;
     owner = fighter_index;
@@ -121,7 +122,7 @@ bool GroundItem::claim(Combatant& fighter, int fighter_index, int item_index, st
     fighter.remember(InputKey::interrupted);
     return true;
 }
-void GroundItem::animate_holder(Combatant& fighter, int holder, const ProjectileType& d, int first_special_cost, bool round_active) {
+void GroundItem::animate_holder(Combatant& fighter, int holder, const ProjectileType& d, int first_special_cost, bool round_active, int held_type) {
     if (fighter.state < FighterState::item_throw_base) {
         if (fighter.action == FighterAction::landing) fighter.action = FighterAction::idle;
         if (fighter.velocity_x != 0 || fighter.velocity_y != 0)
@@ -149,7 +150,7 @@ void GroundItem::animate_holder(Combatant& fighter, int holder, const Projectile
     if (fighter.state / 10 == FighterStateGroup::using_weapon) {
         if (fighter.state == FighterState::weapon_active && fighter.action == FighterAction::item_windup) {
             fighter.action = FighterAction::weapon_idle; fighter.state = FighterState::item_idle_base;
-            if (fighter.archetype == FighterType::sword_user && type == ItemType::sword && fighter.energy >= first_special_cost) {
+            if (fighter.archetype == FighterType::sword_user && held_type == ItemType::sword && fighter.energy >= first_special_cost) {
                 fighter.energy -= first_special_cost; fighter.launched_projectile = ItemType::sword_projectile; fighter.projectile_count = 1;
             }
         } else if (fighter.state == FighterState::weapon_active && fighter.action == FighterAction::bow_use) {
@@ -190,10 +191,10 @@ std::optional<ImpactRegion> GroundItem::follow(Combatant& fighter, const Project
     frame = type == ItemType::summoned_weapon ? 3 - frame : 2;
     if (act == FighterAction::item_windup) facing = -facing;
     if (!holding || !fighter.active || (fighter.state / 50 != FighterStateGroup::item && fighter.state / SpecialMoveId::state_stride != SpecialState::chung_kem)) {
-        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; settled = false;
+        owner = ItemOwnership::unowned; last_owner = ItemOwnership::detached; settled = false; animation = 1;
         if (type == ItemType::summoned_weapon) active = false;
         frame = 3; vz = -7; vx = draw ? draw(7) - 3 : 0;
-        return std::nullopt;
+        return swing;
     }
     if (act == FighterAction::weapon_idle) frame = 3;
     if (d.category == ItemCategory::melee && act >= FighterAction::weapon_swing_first && act <= FighterAction::weapon_swing_last) {

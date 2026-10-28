@@ -4,6 +4,7 @@
 #include "opponent.hpp"
 #include "grapple.hpp"
 #include <algorithm>
+#include <vector>
 #include <cstdlib>
 #include <limits>
 
@@ -11,8 +12,9 @@ bool Opponent::weapon_attacking(std::span<Combatant> fighters, std::size_t index
     if (index >= fighters.size() || draw(difficulty) > 0) return false;
     auto& self = fighters[index];
     for (const auto& projectile : projectiles) {
-        if (!projectile.active || projectile.exploding || projectile.slot < 8 || projectile.slot >= 30 || projectile.owner < 0 || projectile.owner >= int(fighters.size()) ||
-            fighters[projectile.owner].team == self.team || std::abs(self.y - projectile.y) >= 7 || std::abs(self.x - projectile.x) >= 60) continue;
+        const int owner_team = projectile.owner >= 0 && projectile.owner < int(fighters.size()) ? fighters[projectile.owner].team : 0;
+        if (!projectile.active || projectile.exploding || projectile.adrift || projectile.slot < 8 || projectile.slot >= 30 ||
+            owner_team == self.team || std::abs(self.y - projectile.y) >= 7 || std::abs(self.x - projectile.x) >= 60) continue;
         if (self.state <= FighterState::free_last) self.velocity_y = self.y > upper + lower ? -3 : 3;
         return true;
     }
@@ -36,7 +38,7 @@ static void apply_opponent_key(std::span<Combatant> fighters, std::size_t index,
     else if (category == ItemCategory::ranged || (key == InputKey::jump && category == ItemCategory::melee)) { self.state = FighterState::throw_item; self.action = FighterAction::item_windup; self.velocity_x /= 3; }
     else if (category == ItemCategory::throwable && has_item) {
         auto& item = items[self.carried];
-        item.owner = ItemOwnership::unowned; item.last_owner = int(index); item.settled = false; item.facing = self.facing;
+        item.owner = ItemOwnership::unowned; item.last_owner = int(index); item.settled = false; item.animation = 1; item.facing = self.facing;
         item.x += self.facing * 12; item.vx = self.facing * 8; item.vz = -4; item.z = -16;
         self.carried = ItemSlot::none; self.state = FighterState::recovery; self.action = FighterAction::throwing; self.velocity_x /= 3;
     }
@@ -80,12 +82,16 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
         if (distance < companion_distance) { companion_distance = distance; companion = &candidate; }
     }
     const GroundItem* object = nullptr;
-    int object_distance = companion ? companion_distance : nearest;
+    int object_distance = companion ? companion_distance : target ? nearest : std::abs(self.x) + std::abs(self.y);
     if (self.tactic != OpponentTactic::heal && self.state / 50 != FighterStateGroup::item && (!target || (std::abs(self.y - target->y) > 6 && std::abs(self.x - target->x) > 25))) {
-        for (const auto& item : items) {
-            if (!item.active || item.animation != 1 || item.owner >= 0) continue;
-            const int distance = std::abs(item.x - self.x) + std::abs(item.y - self.y);
-            if (!target || distance < object_distance) { object_distance = distance; object = &item; }
+        bool aiming = target != nullptr;
+        std::vector<const GroundItem*> by_slot;
+        for (const auto& item : items) if (item.active && item.animation == 1 && item.owner < 0) by_slot.push_back(&item);
+        std::stable_sort(by_slot.begin(), by_slot.end(), [](const auto* a, const auto* b) { return a->slot < b->slot; });
+        for (const auto* item : by_slot) {
+            const int distance = std::abs(item->x - self.x) + std::abs(item->y - self.y);
+            if (!aiming) { object = item; aiming = true; }
+            else if (object_distance > distance) { object_distance = distance; object = item; }
         }
     }
     char requested_key = self.state / 5 == FighterStateGroup::item_idle && self.carried >= 0 && self.carried < int(items.size()) && items[self.carried].type == ItemType::drink ? InputKey::attack : 0;
@@ -130,6 +136,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
         const decltype(resolve_clinch)& resolve;
         ~ClinchOnExit() { resolve(); }
     } clinch_on_exit{resolve_clinch};
+    const auto held_type = [&] { return self.held_object_type >= 0 ? self.held_object_type : items[self.carried].type; };
     const auto select_special = [&] {
         if (moves.empty() || ranges.empty()) return;
         bool activated = false;
@@ -150,7 +157,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 continue;
             }
             if (self.state / 50 == FighterStateGroup::item && self.carried >= 0 && self.carried < int(items.size())) {
-                const int type = items[self.carried].type;
+                const int type = held_type();
                 if (type >= 0 && type < int(types.size()) && types[type].category < ItemCategory::throwable &&
                     !(self.archetype == FighterType::bow_user && type == ItemType::bow) && !(self.archetype == FighterType::sword_user && type == ItemType::sword) &&
                     (kind == SpecialMoveId::ball_kat || kind == SpecialMoveId::chi_bow || kind == SpecialMoveId::chung_kem || kind == SpecialMoveId::pow_four || kind == SpecialMoveId::hei_sheun || kind == SpecialMoveId::cheun_sun || kind == SpecialMoveId::kung_bow)) {
@@ -160,7 +167,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
             if (move.form == 'F' || move.form == 'G' || move.form == 'H') {
                 const bool existing_item = self.carried >= 0 && self.carried < int(items.size());
                 const bool holding = self.state / 50 == FighterStateGroup::item;
-                const int type = holding ? (existing_item ? items[self.carried].type : self.item_pending ? *self.item_pending : -1) : (self.archetype == FighterType::bow_user ? 7 : 0);
+                const int type = holding ? (existing_item ? held_type() : self.item_pending ? *self.item_pending : -1) : (self.archetype == FighterType::bow_user ? 7 : 0);
                 self.facing = self.x > target->x ? -1 : 1;
                 if (type < 0 || type >= int(types.size())) continue;
                 if (!holding) {
@@ -178,6 +185,7 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 continue;
             }
             self.facing = self.x > target->x ? -1 : 1;
+            if (kind == SpecialMoveId::ball_kat && self.archetype == FighterType::restricted_ball_user && self.health <= self.health / 8) continue;
             if (self.activate_special(move)) activated = true;
         }
         if (activated) return;
@@ -292,8 +300,8 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
                 self.velocity_x = self.x > target->x ? -tactic_x : tactic_x;
                 self.velocity_y = self.y > target->y ? -tactic_x : tactic_y;
                 self.facing = self.x > target->x ? -1 : 1;
+                requested_key = InputKey::jump;
                 if (self.velocity_z > 0) { activate(SpecialMoveId::hung_ball); self.tactic = OpponentTactic::none; }
-                else requested_key = InputKey::jump;
             }
         } else if ((target->energy > 125 && self.invisible_ticks < 10) || distance < 75 || nearby_pressure > 200) {
             self.tactic = OpponentTactic::none;
@@ -365,6 +373,6 @@ void Opponent::act(std::span<Combatant> fighters, std::size_t index, int difficu
         requested_key = InputKey::attack;
         self.remember(InputKey::attack);
     }
-    if (self.z == 0 && draw(difficulty / 2 + 1) == 0 && target->state / 10 != FighterStateGroup::injured && self.state / 10 != FighterStateGroup::lifting) select_special();
+    if (self.z == 0 && !target->just_eliminated && draw(difficulty / 2 + 1) == 0 && target->state / 10 != FighterStateGroup::injured && self.state / 10 != FighterStateGroup::lifting) select_special();
     if (has_tactic()) run_tactic();
 }

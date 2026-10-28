@@ -65,6 +65,7 @@ private:
     bool thing_in_slot(int slot) const;
     struct SlotMemory { int type = 0, y = 0, owner = 0; };
     std::array<SlotMemory, hit_slots> slot_memory_{};
+    std::array<int, hit_slots> slot_life_{};
     struct Input {
         Field& field;
         bool held(int player, Action direction) const { return field.held && field.held(player, direction); }

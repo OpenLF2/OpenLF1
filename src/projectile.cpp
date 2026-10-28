@@ -44,7 +44,7 @@ ProjectileCollision Projectile::intercept(const ImpactRegion& hit, Combatant& de
     const int damage_kind = (d.damage + d.effect * ImpactCode::scale) / ImpactCode::scale;
     if (damage_kind != ImpactCode::fire_kind && damage_kind != ImpactCode::explosion_kind && damage_kind != ImpactCode::piercing_kind && damage_kind != ImpactCode::freeze_kind) return ProjectileCollision::none;
     const bool guarded = defender.action == FighterAction::guard && ((facing == 1 && x > defender.x) || (facing == -1 && x < defender.x));
-    if (!guarded && (defender.action == FighterAction::guard || facing != defender.facing) && type != ItemType::arrow) {
+    if (defender.archetype == FighterType::regenerating_fighter || (!guarded && (defender.action == FighterAction::guard || facing != defender.facing) && type != ItemType::arrow)) {
         defender.energy = std::min(defender.max_energy, defender.energy + 7);
         if (defender.archetype == FighterType::projectile_reflector || type == ItemType::reflected_projectile || hit.damage / ImpactCode::scale == ImpactCode::freeze_kind) type = ItemType::reflected_projectile;
         facing = defender.action == FighterAction::guard ? (x > defender.x ? 1 : -1) : defender.facing;
@@ -64,15 +64,14 @@ ImpactRegion Projectile::advance(const ProjectileType& d, std::span<const Combat
     if (d.motion == ItemMotion::homing || ((type == ItemType::summoned_weapon || type == ItemType::random_target_projectile) && lifetime > 0)) {
         if (owner < 0 || owner >= int(fighters.size())) { active = false; return {}; }
         if ((type == ItemType::summoned_weapon || type == ItemType::random_target_projectile) && lifetime > 0) --lifetime;
-        if (target < 0 || target == owner || target >= int(fighters.size()) || !fighters[target].active ||
-            (type == ItemType::random_target_projectile && fighters[target].just_eliminated)) {
+        if (target < 0 || target == owner || target >= int(fighters.size()) || !fighters[target].active || fighters[target].just_eliminated) {
             target = -1;
             int nearest = std::numeric_limits<int>::max();
             std::array<int, 8> candidates{};
             int count = 0;
             for (int i = 0; i < int(fighters.size()); ++i) {
                 const auto& f = fighters[i];
-                if (!f.active || i == owner || f.team == fighters[owner].team || (type == ItemType::random_target_projectile ? f.just_eliminated : f.state / 10 == FighterStateGroup::angel)) continue;
+                if (!f.active || f.just_eliminated || i == owner || f.team == fighters[owner].team || (type != ItemType::random_target_projectile && f.state / 10 == FighterStateGroup::angel)) continue;
                 if (type == ItemType::random_target_projectile && count < int(candidates.size())) { candidates[count++] = i; continue; }
                 const int distance = std::abs(f.x - x) + std::abs(f.y - y);
                 if (distance < nearest) { nearest = distance; target = i; }

@@ -55,8 +55,9 @@ MatchSetup Roster::create(int mode, int option, std::array<Participant, GameLimi
     }
     if (std::find(kind.begin(), kind.end(), GameLimits::characters) == kind.end() && (rare_character || draw(8) == 1)) {
         for (int i = 0; i < GameLimits::fighter_slots; ++i) {
-            bool human_team = false;
-            for (int j = 0; j < GameLimits::fighter_slots; ++j) human_team |= team[i] == team[j] && setup.controls[j] >= 0;
+            const int groups = option < 4 ? 2 : option - 1;
+            const int checked = groups == 2 ? i / 4 : i / 2;
+            const bool human_team = mode == GameMode::teams && groups <= 4 && setup.controls[checked] >= 0;
             if (setup.controls[i] < 0 && !human_team) { kind[i] = GameLimits::characters; break; }
         }
     }

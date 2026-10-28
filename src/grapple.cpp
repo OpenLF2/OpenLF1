@@ -20,15 +20,15 @@ bool Grapple::rush(std::span<Combatant> fighters, int holder, int victim, const 
     return true;
 }
 
-bool Grapple::clinch(std::span<Combatant> fighters, int holder, int victim, bool left_held) {
+bool Grapple::clinch(std::span<Combatant> fighters, int holder, int victim, bool left_held, const ImpactRegion& marker) {
     if (holder < 0 || victim < 0 || holder == victim || holder >= int(fighters.size()) || victim >= int(fighters.size())) return false;
     auto& a = fighters[holder]; auto& b = fighters[victim];
     const char direction = a.history.back();
     if (!a.active || !b.active || b.priority < a.priority || a.team == b.team || a.z != 0 || b.velocity_z != 0 ||
         a.state / 10 == FighterStateGroup::injured || a.state / 10 == FighterStateGroup::angel || a.state / 20 == FighterStateGroup::lifted ||
         (!left_held && direction != InputKey::left && direction != InputKey::right) || a.x <= b.x ||
-        std::abs(a.y - b.y) >= 8 || std::abs(a.x - a.facing * 2 - b.x) >= 22 ||
-        std::abs(a.z - 10 - (b.z - 12)) >= 23) return false;
+        std::abs(a.y - marker.y) >= 8 || std::abs(a.x - a.facing * 2 - marker.x) >= marker.width + 10 ||
+        std::abs(a.z - 10 - marker.z) >= marker.height + 11) return false;
     a.state = FighterState::clinch_base + victim; a.action = FighterAction::clinch;
     b.state = FighterState::clinched_base + holder; b.action = FighterAction::hit; b.facing = -a.facing;
     a.x = b.x + b.facing * 13; a.y = b.y + 1; a.velocity_x = a.velocity_y = 0;
@@ -45,11 +45,12 @@ bool Grapple::strike(std::span<Combatant> fighters, int holder) {
 bool Grapple::throw_clinched(std::span<Combatant> fighters, int holder) {
     if (holder < 0 || holder >= int(fighters.size())) return false;
     auto& a = fighters[holder];
-    if (a.state < FighterState::clinch_base || a.state > FighterState::clinch_last) return false;
+    if (a.state / 20 != FighterStateGroup::clinching) return false;
     const int index = a.state - FighterState::clinch_base;
-    if (index >= int(fighters.size()) || !fighters[index].active) return false;
-    auto& b = fighters[index];
-    b.state = FighterState::throw_start; b.x += b.facing * 30; b.z -= 8;
+    if (index >= 0 && index < int(fighters.size())) {
+        auto& b = fighters[index];
+        b.state = FighterState::throw_start; b.x += b.facing * 30; b.z -= 8;
+    } else if (index >= 0) a.thrown_object = index;
     a.facing *= -1; a.state = FighterState::recovery; a.action = FighterAction::throwing; a.energy = std::min(a.max_energy, a.energy + 10);
     return true;
 }
@@ -83,14 +84,14 @@ void Grapple::clinched(std::span<Combatant> fighters, int victim) {
         b.action = FighterAction::clinch_break; b.state = FighterState::recovery_start;
     }
 }
-bool Grapple::lift(std::span<Combatant> fighters, int holder, int victim) {
+bool Grapple::lift(std::span<Combatant> fighters, int holder, int victim, const ImpactRegion& marker) {
     if (holder < 0 || victim < 0 || holder == victim || holder >= int(fighters.size()) || victim >= int(fighters.size())) return false;
     auto& a = fighters[holder];
     auto& b = fighters[victim];
     if (!a.active || !b.active || b.priority < a.priority || a.state / 10 == FighterStateGroup::injured || a.state / 10 == FighterStateGroup::angel || a.state / 20 == FighterStateGroup::lifted ||
         a.z != 0 || a.history.back() != InputKey::attack || (a.state != FighterState::punch_active && a.state != FighterState::kick_active && a.state / 50 != FighterStateGroup::item) ||
-        std::abs(a.y - b.y) >= 8 || std::abs(a.x - a.facing * 2 - b.x) >= 18 ||
-        std::abs(a.z - 10 - (b.z - 12)) >= 23) return false;
+        std::abs(a.y - marker.y) >= 8 || std::abs(a.x - a.facing * 2 - marker.x) >= marker.width + 10 ||
+        std::abs(a.z - 10 - marker.z) >= marker.height + 11) return false;
     a.remember(InputKey::interrupted);
     a.state = FighterState::lift_base + victim; a.action = FighterAction::landing;
     a.carried = ItemSlot::none;
