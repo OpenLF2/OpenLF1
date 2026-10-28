@@ -45,39 +45,8 @@ void Field::press(Action input) {
     const auto draw = [this](int limit) { return random.draw(limit); };
     const auto& boundaries = tables_.bounds;
     const auto& item_types = tables_.item_types;
-    const auto& ranges = tables_.ranges;
-    const auto& special_profiles = tables_.specials;
     struct AppearanceView { const std::array<SpecialMove, GameLimits::special_moves>& specials; };
     struct Appearances { const FieldTables& t; AppearanceView operator[](std::size_t i) const { return {t.specials[i]}; } } appearance{tables_};
-        const auto create_pending_item = [&](std::size_t fighter_index) {
-            auto& fighter = fighters[fighter_index];
-            if (!fighter.item_pending) return;
-            const int slot = free_slot(8);
-            if (slot < 30) {
-                const auto free_item = std::find_if(ground_items.begin(), ground_items.end(), [](const auto& item) { return !item.active; });
-                const int index = free_item == ground_items.end() ? int(ground_items.size()) : int(free_item - ground_items.begin());
-                if (free_item == ground_items.end()) ground_items.emplace_back();
-                if (fighter.carried >= 0 && fighter.carried < int(ground_items.size())) {
-                    auto& prior = ground_items[fighter.carried];
-                    prior.owner = ItemOwnership::unowned; prior.last_owner = ItemOwnership::detached; prior.settled = false; prior.frame = 3; prior.vz = -7; prior.vx = draw(7) - 3;
-                }
-                auto& created = ground_items[index];
-                created = GroundItem{};
-                created.slot = slot;
-                created.type = *fighter.item_pending; created.owner = created.last_owner = int(fighter_index); created.durability = *fighter.item_pending == ItemType::summoned_sword ? 5 : 1;
-                created.x = fighter.x; created.y = fighter.y + 1; created.z = fighter.animation_step - 11; created.facing = fighter.facing;
-                fighter.carried = index;
-            } else { fighter.state = FighterState::idle; fighter.action = FighterAction::idle; }
-            fighter.item_pending.reset();
-        };
-        const auto show_hit = [&](const Combatant& target, const ImpactRegion& impact, int facing, int original_z, const std::array<int, 2>& offsets) {
-            const int effect = impact.damage / ImpactCode::scale;
-            if (effect == ImpactCode::normal_kind || effect == ImpactCode::explosion_kind || effect == ImpactCode::piercing_kind)
-            {
-                const int slot = free_slot(24);
-                if (slot < 30) hit_effects.push_back({target.x - facing * 7 + offsets[0], target.y + offsets[1], original_z - 12, facing, 1, 0, slot});
-            }
-        };
                 for (std::size_t i = 0; i < fighters.size(); ++i) {
                     if (!round.ongoing() || !fighters[i].active || fighters[i].death_pose > 0) continue;
                     if (controllers[i] < 0) {

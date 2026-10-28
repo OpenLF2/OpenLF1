@@ -72,3 +72,23 @@ MatchSetup Roster::create(int mode, int option, std::array<Participant, GameLimi
     }
     return setup;
 }
+
+MatchSetup Roster::create_contest(std::span<const Entrant> contenders, const std::array<int, 3>& controls, int floor) {
+    MatchSetup setup{};
+    setup.controls.fill(-1);
+    for (auto& fighter : setup.fighters) { fighter.active = false; fighter.x = 64; fighter.y = floor; }
+    const int count = int(contenders.size());
+    for (int i = 0; i < count; ++i) {
+        const int slot = count == 2 && i == 1 ? 3 : i;
+        auto& fighter = setup.fighters[slot];
+        fighter.active = true; fighter.archetype = contenders[i].character; fighter.team = i + 1;
+        fighter.x = 104 + i * (count == 2 ? 176 : 88);
+        fighter.y = floor - 90;
+        fighter.facing = fighter.x < 160 ? 1 : -1;
+        fighter.health = fighter.max_health = FighterDefaults::battle_health; fighter.energy = FighterDefaults::battle_energy; fighter.max_energy = FighterDefaults::battle_max_energy;
+        fighter.effect_ticks = FighterDefaults::spawn_invulnerability; fighter.computer = contenders[i].player_number == 0;
+        fighter.marker = contenders[i].player_number; fighter.score = 1;
+        setup.controls[slot] = controls[i];
+    }
+    return setup;
+}
